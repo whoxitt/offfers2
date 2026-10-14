@@ -2,7 +2,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Dict
 
 
 class Database:
@@ -71,6 +71,9 @@ class Database:
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 expires_at TIMESTAMP,
+                accepted_at TIMESTAMP,
+                transfer_confirmed INTEGER DEFAULT 0,
+                transfer_confirmed_at TIMESTAMP,
                 message_chat_id INTEGER,
                 message_id INTEGER,
                 business_connection_id TEXT,
@@ -92,8 +95,8 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
             """)
 
-    def upsert_business_connection(self, connection_id: str, user_id: int, username: str | None,
-                                   first_name: str | None, last_name: str | None, enabled: bool):
+    def upsert_business_connection(self, connection_id: str, user_id: int, username: Optional[str],
+                                   first_name: Optional[str], last_name: Optional[str], enabled: bool):
         with self.connect() as con:
             con.execute("""INSERT INTO offer_business_connections
                 (connection_id,user_id,username,first_name,last_name,is_enabled,is_blocked,updated_at)
@@ -144,7 +147,7 @@ class Database:
         with self.connect() as con:
             return con.execute("SELECT 1 FROM offer_access_users WHERE user_id=?", (user_id,)).fetchone() is not None
 
-    def set_profile(self, user_id: int, name: str | None, url: str | None):
+    def set_profile(self, user_id: int, name: Optional[str], url: Optional[str]):
         with self.connect() as con:
             con.execute("""INSERT INTO offer_user_profiles(user_id,name,url,updated_at)
                 VALUES(?,?,?,CURRENT_TIMESTAMP)
@@ -155,7 +158,7 @@ class Database:
         with self.connect() as con:
             return con.execute("SELECT * FROM offer_user_profiles WHERE user_id=?", (user_id,)).fetchone()
 
-    def create_offer(self, data: dict[str, Any]) -> int:
+    def create_offer(self, data: Dict[str, Any]) -> int:
         with self.connect() as con:
             cur = con.execute("""INSERT INTO gift_offers
                 (seller_id,seller_username,buyer_id,buyer_username,buyer_url,gift_name,gift_number,gift_url,amount,currency,locale,status,created_at,expires_at,message_chat_id,message_id,business_connection_id,transfer_url)
@@ -175,9 +178,16 @@ class Database:
         with self.connect() as con:
             return con.execute("SELECT * FROM gift_offers WHERE id=?", (offer_id,)).fetchone()
 
-    def update_offer_status(self, offer_id: int, status: str, transfer_url: str | None = None):
+    def update_offer_status(self, offer_id: int, status: str, transfer_url: Optional[str] = None):
         with self.connect() as con:
-            con.execute("UPDATE gift_offers SET status=?, transfer_url=COALESCE(?,transfer_url) WHERE id=?", (status, transfer_url, offer_id))
+            if status == "accepted":
+                con.execute("UPDATE gift_offers SET status=?, transfer_url=COALESCE(?,transfer_url), accepted_at=CURRENT_TIMESTAMP WHERE id=?", (status, transfer_url, offer_id))
+            else:
+                con.execute("UPDATE gift_offers SET status=?, transfer_url=COALESCE(?,transfer_url) WHERE id=?", (status, transfer_url, offer_id))
+
+    def confirm_transfer(self, offer_id: int):
+        with self.connect() as con:
+            con.execute("UPDATE gift_offers SET transfer_confirmed=1, transfer_confirmed_at=CURRENT_TIMESTAMP WHERE id=?", (offer_id,))
 
     def list_connections(self):
         with self.connect() as con:

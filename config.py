@@ -1,6 +1,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Tuple
 
 
 def _bool(value: str, default: bool = False) -> bool:
@@ -17,8 +18,8 @@ class Config:
     offer_help_url: str
     business_debug: bool
     offer_access_mode: str
-    offer_always_allowed_ids: tuple[int, ...]
-    offer_expire_hours: float = 5.9833333333  # 5ч 59м
+    offer_always_allowed_ids: Tuple[int, ...]
+    offer_expire_hours: float = 24.0  # 24ч
     ton_wallet: str = ""
     payment_amount: float = 10.0  # Grаm
     tonkeeper_deeplink: str = "https://app.tonkeeper.com/transfer/{address}?amount={amount}&text={memo}"
@@ -57,7 +58,7 @@ def load_config() -> Config:
         business_debug=_bool(os.getenv("BUSINESS_DEBUG", "1"), True),
         offer_access_mode=mode,
         offer_always_allowed_ids=tuple(ids),
-        offer_expire_hours=float(os.getenv("OFFER_EXPIRE_HOURS", "5.9833333333")),
+        offer_expire_hours=float(os.getenv("OFFER_EXPIRE_HOURS", "24.0")),
         ton_wallet=os.getenv("TON_WALLET", "").strip(),
         payment_amount=float(os.getenv("PAYMENT_AMOUNT", "10.0")),
     )

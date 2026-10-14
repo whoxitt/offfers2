@@ -646,6 +646,47 @@ async def offer_callback(call: CallbackQuery):
         if not offer:
             await call.answer("Офер не найден.", show_alert=True); return
         
+        # Проверка что офер принят
+        if offer["status"] != "accepted":
+            await call.answer("Этот офер ещё не принят.", show_alert=True); return
+        
+        # Проверка что уже подтверждено
+        if offer["transfer_confirmed"]:
+            title = gift_title(offer["gift_name"], offer["gift_number"])
+            if offer["locale"] == "en":
+                await call.answer(f"Transfer of gift {title} has already been confirmed.", show_alert=True)
+            else:
+                await call.answer(f"Передача подарка {title} уже подтверждена.", show_alert=True)
+            return
+        
+        # Проверка времени (4 минуты после принятия)
+        if offer["accepted_at"]:
+            accepted_time = datetime.fromisoformat(offer["accepted_at"])
+            # Если accepted_time без timezone, добавляем UTC
+            if accepted_time.tzinfo is None:
+                accepted_time = accepted_time.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            time_passed = (now - accepted_time).total_seconds()
+            cooldown_seconds = 4 * 60  # 4 минуты
+            
+            if time_passed < cooldown_seconds:
+                remaining = int(cooldown_seconds - time_passed)
+                minutes = remaining // 60
+                seconds = remaining % 60
+                
+                title = gift_title(offer["gift_name"], offer["gift_number"])
+                
+                if offer["locale"] == "en":
+                    message = f"Gift {title} has not been transferred to the buyer. Please try again.\n\nYou can confirm the transfer in {minutes}m {seconds}s."
+                else:
+                    message = f"Подарок {title} не передан покупателю. Повторите попытку.\n\nВы сможете подтвердить передачу через {minutes}м {seconds}с."
+                
+                await call.answer(message, show_alert=True)
+                return
+        
+        # Подтверждаем передачу
+        db.confirm_transfer(offer_id)
+        
         title = gift_title(offer["gift_name"], offer["gift_number"])
         
         if offer["locale"] == "en":
