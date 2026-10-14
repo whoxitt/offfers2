@@ -2,12 +2,13 @@ import re
 from datetime import datetime, timedelta, timezone
 
 NFT_RE = re.compile(r"(?:https?://)?t\.me/nft/([^/?#\s]+?)-(\d+)(?:/)?$", re.I)
-PRICE_RE = re.compile(r"(?P<amount>\d+(?:[.,]\d+)?)\s*(?P<currency>грам(?:м)?|gram(?:s)?|зв(?:ёзд|езд)?|stars?|star)\b", re.I)
+PRICE_RE = re.compile(r"(?P<amount>\d+(?:[.,]\d+)?)\s*(?P<currency>грам(?:м)?|gram(?:s)?|зв(?:ёзд|езд)?|stars?|star|р(?:уб(?:л)?)?)\b", re.I)
 
 DECLINE_EMOJI_ID = "5778527486270770928"
 ACCEPT_EMOJI_ID = "5776375003280838798"
 TRANSFER_EMOJI_ID = "5879770735999717115"
 GIFT_EMOJI_ID = "6032937473162614352"
+CONFIRM_EMOJI_ID = "5800595351589195950"  # Красный эмодзи для кнопки подтверждения
 
 
 def normalize_nft(raw: str):
@@ -37,14 +38,24 @@ def parse_offer(text: str):
         return {"error": "price", "locale": locale, **nft}
     amount = float(price.group("amount").replace(",", "."))
     currency_raw = price.group("currency").lower()
-    currency = "gram" if currency_raw.startswith(("грам", "gram")) else "stars"
+    if currency_raw.startswith(("грам", "gram")):
+        currency = "gram"
+    elif currency_raw.startswith(("р", "руб")):
+        currency = "rub"
+    else:
+        currency = "stars"
     return {**nft, "amount": amount, "currency": currency, "locale": locale}
 
 
 def display_amount(amount: float, currency: str) -> str:
     value = f"{amount:g}"
     # Обход PEER_FLOOD: латинская 'а' вместо кириллической
-    return f"{value} {'Grаm' if currency == 'gram' else 'Stаrs'}"
+    if currency == "gram":
+        return f"{value} Grаm"
+    elif currency == "rub":
+        return f"{value} ₽"
+    else:
+        return f"{value} Stаrs"
 
 
 def gift_title(name: str, number: int) -> str:

