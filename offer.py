@@ -64,11 +64,8 @@ def gift_title(name: str, number: int) -> str:
 
 def format_remaining(seconds: float) -> str:
     total = max(0, int(seconds))
-    hours, rem = divmod(total, 3600)
-    minutes = rem // 60
-    if hours:
-        return f"{hours}ч {minutes:02d}м"
-    return f"{minutes}м"
+    hours = total // 3600
+    return f"{hours}ч"
 
 
 def make_expiry(now=None, hours=6):
