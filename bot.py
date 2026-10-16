@@ -290,12 +290,18 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     await delete_source(message, business_connection_id)
 
 
-async def reply_message(message: Message, text: str):
+async def reply_message(message: Message, text: str, reply_markup=None):
+    """Reply to a message, optionally attaching an inline/reply keyboard."""
     try:
         if message.business_connection_id:
-            await bot.send_message(chat_id=message.chat.id, business_connection_id=message.business_connection_id, text=text)
+            await bot.send_message(
+                chat_id=message.chat.id,
+                business_connection_id=message.business_connection_id,
+                text=text,
+                reply_markup=reply_markup,
+            )
         else:
-            await message.answer(text)
+            await message.answer(text, reply_markup=reply_markup)
     except Exception:
         log.exception("Failed to reply to message")
 
