@@ -20,21 +20,30 @@ def normalize_nft(raw: str):
 
 
 def parse_offer(text: str):
+    """Parse an offer and recognize the requested language anywhere in the command.
+
+    Supported examples:
+      офер https://t.me/nft/PartySparkler-140864 150 грам китай
+      .офер араб https://t.me/nft/PartySparkler-140864 150 stars
+      offer https://t.me/nft/PartySparkler-140864 150 stars en
+    """
     tokens = text.strip().split()
     locale = "ru"
-    # Проверка языка: англ/en, китай/кит/cn, араб/ar (пункт 7)
-    if len(tokens) >= 2:
-        lang_token = tokens[1].lower()
-        if lang_token in {"англ", "английский", "en", "eng"}:
-            locale = "en"
-            tokens.pop(1)
-        elif lang_token in {"китай", "кит", "cn", "chinese"}:
-            locale = "cn"
-            tokens.pop(1)
-        elif lang_token in {"араб", "arabic", "ar"}:
-            locale = "ar"
-            tokens.pop(1)
-    
+    language_aliases = {
+        "en": "en", "eng": "en", "англ": "en", "английский": "en", "английском": "en", "english": "en",
+        "cn": "cn", "zh": "cn", "chinese": "cn", "中文": "cn", "китай": "cn", "кит": "cn", "китайский": "cn", "китайском": "cn",
+        "ar": "ar", "arab": "ar", "arabic": "ar", "عربي": "ar", "العربية": "ar", "عرب": "ar", "араб": "ar", "арабский": "ar", "арабском": "ar",
+        "ru": "ru", "рус": "ru", "русский": "ru", "русском": "ru",
+    }
+    # Language can be placed after the command or at the end, as users naturally write it.
+    # Remove the language token before looking for the NFT URL, but keep the original text for price parsing.
+    for i in range(1, len(tokens)):
+        token = tokens[i].strip(".,:;!?()[]{}<>\"'`).").lower()
+        if token in language_aliases:
+            locale = language_aliases[token]
+            tokens.pop(i)
+            break
+
     nft = None
     for token in tokens[1:]:
         candidate = normalize_nft(token)

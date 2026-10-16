@@ -1,16 +1,23 @@
-OfferBot — referral button update
+OfferBot — обновление
 
-Included files:
-- bot.py: adds a "🎁 Реферальная программа" button to the main menu and opens the referral details screen.
-- database.py: PostgreSQL database layer with referral tracking/reward logic.
-- config.py: configuration for PostgreSQL and Railway environment variables.
-- requirements.txt: Python dependencies, including psycopg2-binary.
+Что добавлено:
+- Секретная команда /code free: подписанный на канал пользователь может сам активировать бесплатный доступ. Команда не добавляется в меню Telegram. Доступ записывается в PostgreSQL; блокировка пользователя снимается, активное Business-подключение разблокируется.
+- /start теперь каждый раз проверяет текущий статус подписки. Если пользователь подписан — сразу открывается главное меню. Если не подписан/отписался — появляется предложение подписаться и кнопка проверки.
+- Кнопка реферальной программы и награда 3 TON после первой успешной оплаты сохранены.
+- PostgreSQL, админка, reply_markup и psycopg2-binary сохранены.
 
-How to deploy:
-1. Replace these files in the same GitHub repository/branch deployed by Railway.
-2. Keep your Railway environment variables (especially DATABASE_URL and BOT_TOKEN).
-3. Commit and push the changes.
-4. Trigger/review the Railway deployment and check build logs.
-5. Open the bot in Telegram, send /start, and press "🎁 Реферальная программа".
+Установка:
+1. Замените bot.py, database.py, config.py и requirements.txt файлами из архива в том же GitHub-репозитории/ветке, которые использует Railway.
+2. Commit + Push, затем дождитесь успешного Redeploy в Railway.
+3. Проверьте, что DATABASE_URL и CHANNEL_ID настроены правильно, а бот имеет право проверять участников канала (обычно бот должен быть администратором канала).
+4. В Telegram пользователь должен быть подписан на канал, затем отправить /code free. Команда специально не включена в список команд, но её можно отправить вручную.
 
-Referral reward: 3 TON after the invited user’s first successful payment. The reward is credited to the internal referral balance; this code does not automatically transfer TON to a wallet.
+Важно: /code free — общий секретный код. Любой, кому вы его сообщите, сможет получить бесплатный доступ, пока код не изменён в коде бота. Не публикуйте его открыто.
+
+
+ИСПРАВЛЕНИЕ ЯЗЫКА ОФЕРА
+Язык офера теперь распознаётся как после суммы, так и сразу после слова «офер». Примеры:
+- офер https://t.me/nft/PartySparkler-140864 150 грам китай
+- офер https://t.me/nft/PartySparkler-140864 150 stars араб
+- офер араб https://t.me/nft/PartySparkler-140864 150 stars
+Поддерживаются также en/англ, cn/китай/中文 и ar/араб/عربي. Важно заменить offer.py вместе с bot.py.
