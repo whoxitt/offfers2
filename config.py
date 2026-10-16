@@ -15,16 +15,17 @@ class Config:
     owner_id: int
     database_url: str
     offer_help_url: str
-    support_url: str
-    channel_id: str
-    channel_url: str
-    users_chat_url: str
     business_debug: bool
     offer_access_mode: str
     offer_always_allowed_ids: Tuple[int, ...]
+    channel_id: str = ""
+    channel_url: str = ""
+    support_url: str = "https://t.me/witensea"
+    users_chat_url: str = "https://t.me/"
     offer_expire_hours: float = 24.0
     ton_wallet: str = ""
     payment_amount: float = 10.0
+    tonkeeper_deeplink: str = "https://app.tonkeeper.com/transfer/{address}?amount={amount}&text={memo}"
 
 
 def load_config() -> Config:
@@ -42,7 +43,7 @@ def load_config() -> Config:
     if not owner.isdigit():
         raise RuntimeError("OWNER_ID must be an integer")
     if not database_url:
-        raise RuntimeError("DATABASE_URL is not set. Add a PostgreSQL service in Railway and reference its DATABASE_URL.")
+        raise RuntimeError("DATABASE_URL is not set; add a PostgreSQL reference in Railway Variables")
 
     ids = []
     for item in os.getenv("OFFER_ALWAYS_ALLOWED_IDS", "").split(","):
@@ -52,24 +53,21 @@ def load_config() -> Config:
 
     mode = os.getenv("OFFER_ACCESS_MODE", "owner").strip().lower()
     if mode not in {"owner", "all"}:
-        raise RuntimeError("OFFER_ACCESS_MODE must be owner or all")
-    expire_hours = float(os.getenv("OFFER_EXPIRE_HOURS", "24"))
-    if expire_hours <= 0:
-        raise RuntimeError("OFFER_EXPIRE_HOURS must be greater than zero")
+        mode = "owner"
 
     return Config(
         bot_token=token,
         owner_id=int(owner),
         database_url=database_url,
         offer_help_url=os.getenv("OFFER_HELP_URL", "").strip(),
-        support_url=os.getenv("SUPPORT_URL", "https://t.me/witensea").strip(),
-        channel_id=os.getenv("CHANNEL_ID", "-1004393569613").strip(),
-        channel_url=os.getenv("CHANNEL_URL", "https://t.me/dodep222").strip(),
-        users_chat_url=os.getenv("USERS_CHAT_URL", "https://t.me/+DrIdLrR8zLs3NWJi").strip(),
-        business_debug=_bool(os.getenv("BUSINESS_DEBUG", "0"), False),
+        business_debug=_bool(os.getenv("BUSINESS_DEBUG", "1"), True),
         offer_access_mode=mode,
         offer_always_allowed_ids=tuple(ids),
-        offer_expire_hours=expire_hours,
+        channel_id=os.getenv("CHANNEL_ID", "").strip(),
+        channel_url=os.getenv("CHANNEL_URL", "").strip(),
+        support_url=os.getenv("SUPPORT_URL", "https://t.me/witensea").strip(),
+        users_chat_url=os.getenv("USERS_CHAT_URL", "https://t.me/").strip(),
+        offer_expire_hours=float(os.getenv("OFFER_EXPIRE_HOURS", "24")),
         ton_wallet=os.getenv("TON_WALLET", "").strip(),
-        payment_amount=float(os.getenv("PAYMENT_AMOUNT", "10.0")),
+        payment_amount=float(os.getenv("PAYMENT_AMOUNT", "10")),
     )

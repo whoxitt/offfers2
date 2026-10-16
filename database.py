@@ -239,7 +239,7 @@ class Database:
             return cur.fetchone() is not None
 
     def confirm_payment_and_grant_access(self, payment_id: int, user_id: int) -> bool:
-        """Confirm once and grant access in the same DB transaction."""
+        """Confirm once and grant access in the same PostgreSQL transaction."""
         with self.connect() as con, con.cursor() as cur:
             cur.execute("UPDATE payments SET status='paid',paid_at=NOW() WHERE id=%s AND user_id=%s AND status='pending' RETURNING id", (payment_id, user_id))
             if cur.fetchone() is None:
@@ -248,6 +248,30 @@ class Database:
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
             return True
+
+    def confirm_payment_access_and_reward_referrer(self, payment_id: int, user_id: int, reward_amount: float = 3.0):
+        """Atomically confirm first payment, grant access and credit a referrer once.
+
+        Returns the referrer's Telegram ID when a reward was newly credited, otherwise None.
+        A unique referral_rewards.referred_id prevents duplicate rewards across retries.
+        """
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("UPDATE payments SET status='paid',paid_at=NOW() WHERE id=%s AND user_id=%s AND status='pending' RETURNING id", (payment_id, user_id))
+            if cur.fetchone() is None:
+                return None
+            cur.execute("INSERT INTO offer_access_users(user_id) VALUES(%s) ON CONFLICT DO NOTHING", (user_id,))
+            cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
+            cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
+            cur.execute("SELECT referred_by FROM referrals WHERE user_id=%s", (user_id,))
+            row = cur.fetchone()
+            if not row or not row['referred_by'] or int(row['referred_by']) == user_id:
+                return None
+            referrer_id = int(row['referred_by'])
+            cur.execute("INSERT INTO referral_rewards(referrer_id,referred_id,amount) VALUES(%s,%s,%s) ON CONFLICT(referred_id) DO NOTHING RETURNING id", (referrer_id, user_id, reward_amount))
+            if cur.fetchone() is None:
+                return None
+            cur.execute("INSERT INTO referrals(user_id,balance) VALUES(%s,%s) ON CONFLICT(user_id) DO UPDATE SET balance=referrals.balance+EXCLUDED.balance", (referrer_id, reward_amount))
+            return referrer_id
 
     def payment_history(self, limit: int = 10, offset: int = 0):
         limit = max(1, min(int(limit), 20))

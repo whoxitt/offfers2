@@ -469,7 +469,7 @@ async def handle_text(message: Message, is_business: bool):
         info = db.referral_info(message.from_user.id)
         me = await bot.get_me()
         link = f"https://t.me/{me.username}?start=ref_{message.from_user.id}"
-        await reply_message(message, f"<b>Рефералка</b>\nСсылка: {link}\nПокупок: {info['count']}\nБаланс: {info['balance']:g} TON\nДля вывода напишите в техподдержку.")
+        await reply_message(message, f"<b>🎁 Реферальная программа</b>\nПриглашайте друзей по своей ссылке. Когда друг впервые оплатит доступ, вы получите <b>3 TON</b>.\n\nВаша ссылка: {link}\nУспешных приглашений: {info['count']}\nБаланс наград: <b>{info['balance']:g} TON</b>\n\nДля вывода напишите в техподдержку.")
         return
     if low.startswith("/admin") or low.startswith("/админ"):
         await admin_command(message)
@@ -670,10 +670,10 @@ async def check_payment_callback(call: CallbackQuery):
     
     if is_paid:
         # Подтверждаем оплату
-        if not db.confirm_payment_and_grant_access(payment["id"], call.from_user.id):
-            # Another concurrent check already handled this payment.
+        referrer_id = db.confirm_payment_access_and_reward_referrer(payment["id"], call.from_user.id, 3.0)
+        if referrer_id is None and db.get_payment_by_memo(memo)["status"] != "paid":
+            # Payment was not confirmed (for example, another check is in progress).
             return
-        referrer_id = db.reward_referrer_for_payment(call.from_user.id, 3.0)
         if referrer_id:
             try: await bot.send_message(referrer_id, "🎉 По вашей реферальной ссылке купили доступ. Начислено 3 TON.")
             except Exception: log.exception("Referral notification failed")
@@ -733,10 +733,10 @@ async def approve_payment_callback(call: CallbackQuery):
         return
     
     # Подтверждаем оплату
-    if not db.confirm_payment_and_grant_access(payment["id"], user_id):
+    referrer_id = db.confirm_payment_access_and_reward_referrer(payment["id"], user_id, 3.0)
+    if referrer_id is None and db.get_payment_by_memo(memo)["status"] != "paid":
         await call.answer("Уже обрабатывается", show_alert=True)
         return
-    referrer_id = db.reward_referrer_for_payment(user_id, 3.0)
     if referrer_id:
         try: await bot.send_message(referrer_id, "🎉 По вашей реферальной ссылке купили доступ. Начислено 3 TON.")
         except Exception: log.exception("Referral notification failed")

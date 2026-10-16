@@ -2,26 +2,17 @@ import re
 from datetime import datetime, timedelta, timezone
 
 NFT_RE = re.compile(r"(?:https?://)?t\.me/nft/([^/?#\s]+?)-(\d+)(?:/)?$", re.I)
-PRICE_RE = re.compile(
-    r"(?P<amount>\d+(?:[.,]\d+)?)\s*(?P<currency>грам(?:м)?|gram(?:s)?|зв(?:ёзд|езд)?|stars?|star|руб(?:лей|ля|ль)?|руб|р|rub(?:les?)?)\b",
-    re.I,
-)
+PRICE_RE = re.compile(r"(?P<amount>\d+(?:[.,]\d+)?)\s*(?P<currency>грам(?:м)?|gram(?:s)?|зв(?:ёзд|езд)?|stars?|star|р(?:уб(?:л)?)?)\b", re.I)
 
 DECLINE_EMOJI_ID = "5778527486270770928"
 ACCEPT_EMOJI_ID = "5776375003280838798"
 TRANSFER_EMOJI_ID = "5879770735999717115"
 GIFT_EMOJI_ID = "6032937473162614352"
-
-LANGUAGES = {
-    "англ": "en", "английский": "en", "английском": "en", "en": "en", "eng": "en", "english": "en",
-    "китай": "cn", "кит": "cn", "китайский": "cn", "cn": "cn", "zh": "cn", "chinese": "cn",
-    "араб": "ar", "арабский": "ar", "ar": "ar", "arabic": "ar",
-    "рус": "ru", "русский": "ru", "ru": "ru", "russian": "ru",
-}
+CONFIRM_EMOJI_ID = "5800595351589195950"  # Красный эмодзи для кнопки подтверждения
 
 
 def normalize_nft(raw: str):
-    m = NFT_RE.fullmatch(raw.strip().rstrip(".,;"))
+    m = NFT_RE.fullmatch(raw.strip())
     if not m:
         return None
     name, number = m.group(1), int(m.group(2))
@@ -31,18 +22,19 @@ def normalize_nft(raw: str):
 def parse_offer(text: str):
     tokens = text.strip().split()
     locale = "ru"
-    # Language may be placed immediately after command or at the end.
-    if len(tokens) > 1:
-        lang = LANGUAGES.get(tokens[1].lower().strip(".,;:"))
-        if lang:
-            locale = lang
+    # Проверка языка: англ/en, китай/кит/cn, араб/ar (пункт 7)
+    if len(tokens) >= 2:
+        lang_token = tokens[1].lower()
+        if lang_token in {"англ", "английский", "en", "eng"}:
+            locale = "en"
             tokens.pop(1)
-    if len(tokens) > 1:
-        lang = LANGUAGES.get(tokens[-1].lower().strip(".,;:"))
-        if lang:
-            locale = lang
-            tokens.pop()
-
+        elif lang_token in {"китай", "кит", "cn", "chinese"}:
+            locale = "cn"
+            tokens.pop(1)
+        elif lang_token in {"араб", "arabic", "ar"}:
+            locale = "ar"
+            tokens.pop(1)
+    
     nft = None
     for token in tokens[1:]:
         candidate = normalize_nft(token)
@@ -51,7 +43,6 @@ def parse_offer(text: str):
             break
     if not nft:
         return {"error": "nft", "locale": locale}
-
     price = PRICE_RE.search(text)
     if not price:
         return {"error": "price", "locale": locale, **nft}
@@ -59,7 +50,7 @@ def parse_offer(text: str):
     currency_raw = price.group("currency").lower()
     if currency_raw.startswith(("грам", "gram")):
         currency = "gram"
-    elif currency_raw.startswith(("р", "rub")):
+    elif currency_raw.startswith(("р", "руб")):
         currency = "rub"
     else:
         currency = "stars"
@@ -68,11 +59,13 @@ def parse_offer(text: str):
 
 def display_amount(amount: float, currency: str) -> str:
     value = f"{amount:g}"
+    # Обход PEER_FLOOD: латинская 'а' вместо кириллической
     if currency == "gram":
         return f"{value} Grаm"
-    if currency == "rub":
-        return f"{value}₽"
-    return f"{value} Stаrs"
+    elif currency == "rub":
+        return f"{value}₽"  # БЕЗ ПРОБЕЛА
+    else:
+        return f"{value} Stаrs"
 
 
 def gift_title(name: str, number: int) -> str:
@@ -80,9 +73,11 @@ def gift_title(name: str, number: int) -> str:
 
 
 def format_remaining(seconds: float) -> str:
-    return f"{max(0, int(seconds)) // 3600}ч"
+    total = max(0, int(seconds))
+    hours = total // 3600
+    return f"{hours}ч"
 
 
-def make_expiry(now=None, hours=24):
+def make_expiry(now=None, hours=6):
     now = now or datetime.now(timezone.utc)
     return now + timedelta(hours=hours)
