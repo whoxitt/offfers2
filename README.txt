@@ -1,20 +1,16 @@
-OfferBot — referral update + PostgreSQL dependency fix
+OfferBot — referral button update
 
-Files:
-- bot.py
-- database.py
-- config.py
-- requirements.txt
-
-Fix for ModuleNotFoundError: No module named 'psycopg2':
-requirements.txt now includes psycopg2-binary, which provides the psycopg2 import.
+Included files:
+- bot.py: adds a "🎁 Реферальная программа" button to the main menu and opens the referral details screen.
+- database.py: PostgreSQL database layer with referral tracking/reward logic.
+- config.py: configuration for PostgreSQL and Railway environment variables.
+- requirements.txt: Python dependencies, including psycopg2-binary.
 
 How to deploy:
-1. Replace the listed files in the same GitHub repository/branch deployed by Railway.
-2. Commit and push the changes.
-3. In Railway, trigger a new deployment and check the build logs to confirm dependencies install.
-4. Keep the existing Railway environment variables, especially DATABASE_URL, BOT_TOKEN and OWNER_ID.
+1. Replace these files in the same GitHub repository/branch deployed by Railway.
+2. Keep your Railway environment variables (especially DATABASE_URL and BOT_TOKEN).
+3. Commit and push the changes.
+4. Trigger/review the Railway deployment and check build logs.
+5. Open the bot in Telegram, send /start, and press "🎁 Реферальная программа".
 
-The referral reward is credited to the referrer's internal TON balance after the invited user's first successful payment. It does not automatically transfer TON to a wallet.
-
-Local Python syntax compilation was checked previously. A live Railway/PostgreSQL/TON payment test has not been performed.
+Referral reward: 3 TON after the invited user’s first successful payment. The reward is credited to the internal referral balance; this code does not automatically transfer TON to a wallet.

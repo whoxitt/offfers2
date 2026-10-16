@@ -78,9 +78,32 @@ def subscription_keyboard():
 def main_menu_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Купить доступ", callback_data="buy_access")],
+        [InlineKeyboardButton(text="🎁 Реферальная программа", callback_data="show_referral")],
         [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
         [InlineKeyboardButton(text="🛟 Техподдержка", url=cfg.support_url)]
     ])
+
+
+def referral_keyboard():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="« В главное меню", callback_data="back_to_start")]
+    ])
+
+
+async def referral_text(user_id: int) -> str:
+    db.register_referral(user_id, None)
+    info = db.referral_info(user_id)
+    me = await bot.get_me()
+    link = f"https://t.me/{me.username}?start=ref_{user_id}"
+    return (
+        "<b>🎁 Реферальная программа</b>\n"
+        "Приглашайте друзей по своей ссылке. Когда друг впервые оплатит доступ, "
+        "вы получите <b>3 TON</b>.\n\n"
+        f"Ваша ссылка: {link}\n"
+        f"Успешных приглашений: {info['count']}\n"
+        f"Баланс наград: <b>{info['balance']:g} TON</b>\n\n"
+        "Для вывода напишите в техподдержку."
+    )
 
 
 def purchase_success_keyboard():
@@ -363,6 +386,21 @@ async def check_subscription_callback(call: CallbackQuery):
     await call.answer("Подписка подтверждена!")
 
 
+@dp.callback_query(F.data == "show_referral")
+async def show_referral_callback(call: CallbackQuery):
+    if not call.from_user:
+        await call.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    try:
+        text = await referral_text(call.from_user.id)
+        await call.message.edit_text(text, reply_markup=referral_keyboard(), disable_web_page_preview=True)
+    except Exception:
+        log.exception("Failed to show referral program")
+        await call.answer("Не удалось открыть реферальную программу. Попробуйте ещё раз.", show_alert=True)
+        return
+    await call.answer()
+
+
 @dp.callback_query(F.data == "show_instruction")
 async def show_instruction_callback(call: CallbackQuery):
     try:
@@ -465,11 +503,7 @@ async def handle_text(message: Message, is_business: bool):
         return
     if low.startswith("/ref"):
         if not message.from_user: return
-        db.register_referral(message.from_user.id, None)
-        info = db.referral_info(message.from_user.id)
-        me = await bot.get_me()
-        link = f"https://t.me/{me.username}?start=ref_{message.from_user.id}"
-        await reply_message(message, f"<b>🎁 Реферальная программа</b>\nПриглашайте друзей по своей ссылке. Когда друг впервые оплатит доступ, вы получите <b>3 TON</b>.\n\nВаша ссылка: {link}\nУспешных приглашений: {info['count']}\nБаланс наград: <b>{info['balance']:g} TON</b>\n\nДля вывода напишите в техподдержку.")
+        await reply_message(message, await referral_text(message.from_user.id), reply_markup=referral_keyboard())
         return
     if low.startswith("/admin") or low.startswith("/админ"):
         await admin_command(message)
