@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 import secrets
+import html
 import aiohttp
 from datetime import datetime, timezone
 
@@ -1033,8 +1034,8 @@ async def offer_callback(call: CallbackQuery):
             await call.answer("Офер недействителен.", show_alert=True); return
         if action == "accept":
             url = offer["transfer_url"] or f"tg://user?id={offer['seller_id']}"
-            title = gift_title(offer["gift_name"], offer["gift_number"])
-            gift_url = offer["gift_url"]
+            title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
+            gift_url = html.escape(offer["gift_url"], quote=True)
             amount_text = display_amount(offer['amount'], offer['currency'])
             if offer["locale"] == "ru":
                 final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю для зачисления 1000 Stars."
@@ -1065,11 +1066,15 @@ async def offer_callback(call: CallbackQuery):
                 else:
                     alert_text = f"Your gift {title} was sold successfully.\nTransfer the gift to the buyer to receive 1000 Stars."
                 await call.answer(alert_text, show_alert=True)
-            except Exception:
-                await call.answer("Не удалось завершить принятие офера. Попробуйте ещё раз.", show_alert=True)
+            except Exception as e:
+                log.exception("[OFFER ACCEPT ERROR] offer_id=%s action=%s", offer_id, action)
+                try:
+                    await call.answer("Не удалось принять офер. Ошибка записана в лог; попробуйте ещё раз.", show_alert=True)
+                except Exception:
+                    log.exception("[OFFER ACCEPT ALERT ERROR] offer_id=%s", offer_id)
         else:
-            title = gift_title(offer["gift_name"], offer["gift_number"])
-            gift_url = offer["gift_url"]
+            title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
+            gift_url = html.escape(offer["gift_url"], quote=True)
             decline_text = {"ru": "Предложение отклонено.", "en": "Offer declined.", "cn": "报价已拒绝。", "ar": "تم رفض العرض."}.get(offer["locale"], "Предложение отклонено.")
             final = f"<tg-emoji emoji-id=\"{DECLINE_EMOJI_ID}\">❌</tg-emoji> <b>{decline_text}</b>"
             try:
@@ -1085,7 +1090,11 @@ async def offer_callback(call: CallbackQuery):
                 declined_alert = {"ru": "Предложение отклонено.", "en": "Offer declined.", "cn": "报价已拒绝。", "ar": "تم رفض العرض."}.get(offer["locale"], "Предложение отклонено.")
                 await call.answer(declined_alert)
             except Exception:
-                await call.answer("Не удалось отклонить офер. Попробуйте ещё раз.", show_alert=True)
+                log.exception("[OFFER DECLINE ERROR] offer_id=%s", offer_id)
+                try:
+                    await call.answer("Не удалось отклонить офер. Ошибка записана в лог.", show_alert=True)
+                except Exception:
+                    log.exception("[OFFER DECLINE ALERT ERROR] offer_id=%s", offer_id)
 
 
 async def cleanup_job():
