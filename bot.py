@@ -70,7 +70,7 @@ def transfer_keyboard(url: str, locale: str, offer_id: int):
     done_labels = {"ru": "Готово", "en": "Done", "cn": "完成", "ar": "تم"}
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=labels.get(locale, labels["ru"]), icon_custom_emoji_id=TRANSFER_EMOJI_ID, url=url)],
-        [InlineKeyboardButton(text=done_labels.get(locale, done_labels["ru"]), icon_custom_emoji_id=DONE_EMOJI_ID, callback_data=f"of:done:{offer_id}")]
+        [InlineKeyboardButton(text=done_labels.get(locale, done_labels["ru"]), icon_custom_emoji_id=PREMIUM_EMOJI_ID, callback_data=f"of:done:{offer_id}")]
     ])
 
 
@@ -287,6 +287,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         seller_username = bc["username"]
         business_connection_id = bc["connection_id"]
 
+    # Получаем профиль пользователя и формируем transfer_url
     profile = db.get_profile(seller_id)
     transfer_username = profile["name"] if profile and profile["name"] else seller_username
     transfer_url = (f"tg://send_gift?to={transfer_username.lstrip('@')}" if transfer_username else f"tg://user?id={seller_id}")
@@ -1108,22 +1109,22 @@ async def offer_callback(call: CallbackQuery):
         # Текст предупреждения
         if offer["locale"] == "ru":
             warning_text = (
-                f"Подарок \"{title}\" не передан покупателю.\n\n"
+                f"Подарок {title} не передан покупателю.\n\n"
                 f"Проверьте что подарок успешно отправлен покупателю и повторите попытку ещё раз."
             )
         elif offer["locale"] == "cn":
             warning_text = (
-                f"礼物 \"{title}\" 尚未转交给买家。\n\n"
+                f"礼物 {title} 尚未转交给买家。\n\n"
                 f"请确认礼物已成功发送给买家，然后再试一次。"
             )
         elif offer["locale"] == "ar":
             warning_text = (
-                f"الهدية \"{title}\" لم يتم نقلها إلى المشتري.\n\n"
+                f"الهدية {title} لم يتم نقلها إلى المشتري.\n\n"
                 f"تحقق من نجاح إرسال الهدية إلى المشتري وحاول مرة أخرى."
             )
         else:
             warning_text = (
-                f"Gift \"{title}\" has not been transferred to the buyer.\n\n"
+                f"Gift {title} has not been transferred to the buyer.\n\n"
                 f"Please verify that the gift was successfully sent to the buyer and try again."
             )
         
