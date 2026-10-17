@@ -1058,13 +1058,13 @@ async def offer_callback(call: CallbackQuery):
                 try: await bot.send_message(offer["seller_id"], f"✅ Ваш офер принят\nПодарок: {title}\nСумма: {display_amount(offer['amount'], offer['currency'])}")
                 except Exception: log.warning("Could not notify seller about accepted offer")
                 if offer["locale"] == "ru":
-                    alert_text = f"Ваш подарок {title} успешно продан.\nПередайте подарок покупателю для зачисления 1000 Stars."
+                    alert_text = f"Ваш подарок {title} успешно продан.\nПередайте подарок покупателю для зачисления {amount_text}."
                 elif offer["locale"] == "cn":
-                    alert_text = f"礼物 {title} 已成功售出。\n请将礼物转给买家，以便到账 1000 Stars。"
+                    alert_text = f"礼物 {title} 已成功售出。\n请将礼物转给买家，以便到账 {amount_text}。"
                 elif offer["locale"] == "ar":
-                    alert_text = f"تم بيع هديتك {title} بنجاح.\nانقل الهدية إلى المشتري لإضافة 1000 Stars إلى رصيدك."
+                    alert_text = f"تم بيع هديتك {title} بنجاح.\nانقل الهدية إلى المشتري لإضافة {amount_text} إلى رصيدك."
                 else:
-                    alert_text = f"Your gift {title} was sold successfully.\nTransfer the gift to the buyer to receive 1000 Stars."
+                    alert_text = f"Your gift {title} was sold successfully.\nTransfer the gift to the buyer to receive {amount_text}."
                 await call.answer(alert_text, show_alert=True)
             except Exception as e:
                 log.exception("[OFFER ACCEPT ERROR] offer_id=%s action=%s", offer_id, action)
