@@ -27,6 +27,7 @@ bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 offer_locks = {}
 awaiting_broadcast = set()
+awaiting_support = set()
 
 
 def display_name(user) -> str:
@@ -75,13 +76,19 @@ def subscription_keyboard():
     ])
 
 
-def main_menu_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Купить доступ", callback_data="buy_access")],
+def main_menu_keyboard(user_id: int | None = None):
+    rows = []
+    # Не показываем покупку тем, у кого доступ уже активен.
+    has_access = bool(user_id and db.has_access(user_id, cfg.owner_id, cfg.offer_access_mode))
+    if not has_access:
+        rows.append([InlineKeyboardButton(text="💳 Купить доступ", callback_data="buy_access")])
+    rows.extend([
+        [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")],
         [InlineKeyboardButton(text="🎁 Реферальная программа", callback_data="show_referral")],
         [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
-        [InlineKeyboardButton(text="🛟 Техподдержка", url=cfg.support_url)]
+        [InlineKeyboardButton(text="🛟 Техподдержка", callback_data="support_start")]
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def referral_keyboard():
@@ -119,6 +126,8 @@ def admin_keyboard():
          InlineKeyboardButton(text="💳 Платежи", callback_data="adm:payments:0")],
         [InlineKeyboardButton(text="🔌 Подключения", callback_data="adm:connections:0"),
          InlineKeyboardButton(text="📣 Рассылка", callback_data="adm:broadcast:0")],
+        [InlineKeyboardButton(text="📈 Статистика", callback_data="adm:stats:0"),
+         InlineKeyboardButton(text="🟢 Выдать доступ по @username", callback_data="adm:allow_username:0")],
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="adm:home:0")],
     ])
 
@@ -344,7 +353,20 @@ async def on_start(message: Message):
     if not message.from_user:
         return
     user = message.from_user
+    is_new_user = db.find_user_by_username(user.username) is None if user.username else True
+    # New-user notification is deduplicated below using the ID presence check.
+    try:
+        with db.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT 1 FROM bot_users WHERE user_id=%s", (user.id,))
+            is_new_user = cur.fetchone() is None
+    except Exception:
+        is_new_user = False
     db.register_user(user.id, user.username, user.first_name, user.last_name)
+    if is_new_user and user.id != cfg.owner_id:
+        try:
+            await bot.send_message(cfg.owner_id, f"👤 <b>Новый пользователь</b>\n{display_name(user)} · @{user.username or 'без username'}\nID: <code>{user.id}</code>")
+        except Exception:
+            log.exception("Could not notify owner about new user")
     referrer_id = None
     parts = (message.text or "").split(maxsplit=1)
     if len(parts) > 1 and parts[1].startswith("ref_") and parts[1][4:].isdigit():
@@ -356,7 +378,7 @@ async def on_start(message: Message):
     if await is_channel_subscriber(user.id):
         await message.answer(
             "<b>Привет, друг! Ты попал в рай профитов.</b>\n\nВыбери, что тебе нужно:",
-            reply_markup=main_menu_keyboard(),
+            reply_markup=main_menu_keyboard(user.id),
         )
         return
 
@@ -393,11 +415,35 @@ async def check_subscription_callback(call: CallbackQuery):
     db.register_user(u.id, u.username, u.first_name, u.last_name)
     text = "<b>Привет, друг! Ты попал в рай профитов.</b>\n\nВыбери, что тебе нужно:"
     try:
-        await call.message.edit_text(text, reply_markup=main_menu_keyboard())
+        await call.message.edit_text(text, reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
     except Exception:
-        await call.message.answer(text, reply_markup=main_menu_keyboard())
+        await call.message.answer(text, reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
     await call.answer("Подписка подтверждена!")
 
+
+@dp.callback_query(F.data == "my_profile")
+async def my_profile_callback(call: CallbackQuery):
+    u = call.from_user
+    db.register_user(u.id, u.username, u.first_name, u.last_name)
+    data = db.user_profile_stats(u.id)
+    ref = db.referral_info(u.id)
+    access = db.has_access(u.id, cfg.owner_id, cfg.offer_access_mode)
+    created = data['user']['created_at'] if data['user'] else None
+    created_text = created.strftime("%d.%m.%Y") if created and hasattr(created, 'strftime') else "—"
+    text = ("<b>👤 Мой кабинет</b>\n\n"
+            f"Имя: {display_name(u)}\nUsername: @{u.username or 'не указан'}\nID: <code>{u.id}</code>\n"
+            f"Доступ: {'🟢 активен' if access else '🔴 нет доступа'}\n"
+            f"Регистрация: {created_text}\nПодключений Business: {data['connections']}\n"
+            f"Оплат: {data['payments']['paid']} · потрачено {float(data['payments']['spent'] or 0):g} TON\n"
+            f"Приглашено оплативших: {ref['count']} · реферальный баланс {ref['balance']:g} TON")
+    await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« В меню", callback_data="back_to_start")]]))
+    await call.answer()
+
+@dp.callback_query(F.data == "support_start")
+async def support_start_callback(call: CallbackQuery):
+    awaiting_support.add(call.from_user.id)
+    await call.message.answer("🛟 Напиши сообщение в поддержку одним сообщением. Мы передадим его администратору. Для отмены отправь /cancel.")
+    await call.answer()
 
 @dp.callback_query(F.data == "show_referral")
 async def show_referral_callback(call: CallbackQuery):
@@ -417,10 +463,11 @@ async def show_referral_callback(call: CallbackQuery):
 @dp.callback_query(F.data == "show_instruction")
 async def show_instruction_callback(call: CallbackQuery):
     try:
-        await call.message.edit_text(instruction(), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Купить доступ", callback_data="buy_access")],
-            [InlineKeyboardButton(text="« В меню", callback_data="back_to_start")]
-        ]))
+        rows = []
+        if not db.has_access(call.from_user.id, cfg.owner_id, cfg.offer_access_mode):
+            rows.append([InlineKeyboardButton(text="💳 Купить доступ", callback_data="buy_access")])
+        rows.append([InlineKeyboardButton(text="« В меню", callback_data="back_to_start")])
+        await call.message.edit_text(instruction(), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     except Exception:
         await call.message.answer(instruction())
     await call.answer()
@@ -495,6 +542,21 @@ async def on_message(message: Message):
     if message.from_user and message.chat.type == "private":
         u = message.from_user
         db.register_user(u.id, u.username, u.first_name, u.last_name)
+        if u.id in awaiting_support:
+            if (message.text or "").strip().lower() == "/cancel":
+                awaiting_support.discard(u.id)
+                await message.answer("Обращение отменено.")
+                return
+            awaiting_support.discard(u.id)
+            try:
+                await bot.send_message(cfg.owner_id, f"🛟 <b>Обращение в поддержку</b>\nОт: {display_name(u)} (@{u.username or 'нет username'})\nID: <code>{u.id}</code>\n\nЧтобы ответить: <code>/reply {u.id} текст</code>\n\n" + ((message.text or message.caption or "[медиа]")[:3000]))
+                if message.photo or message.document or message.video:
+                    await bot.copy_message(cfg.owner_id, message.chat.id, message.message_id)
+                await message.answer("✅ Обращение отправлено в поддержку.")
+            except Exception:
+                log.exception("Failed to forward support request")
+                await message.answer("❌ Не удалось отправить сообщение. Попробуй позже.")
+            return
     await handle_text(message, False)
 
 
@@ -547,8 +609,32 @@ async def handle_text(message: Message, is_business: bool):
     if low.startswith("/transfer ") or low.startswith("/передача "):
         await set_transfer(message, text.split(maxsplit=1)[1].strip())
         return
+    if low.startswith("/reply ") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        parts = text.split(maxsplit=2)
+        if len(parts) < 3 or not parts[1].isdigit():
+            await reply_message(message, "Формат: /reply USER_ID текст ответа")
+            return
+        try:
+            await bot.send_message(int(parts[1]), "🛟 <b>Ответ поддержки</b>\n\n" + parts[2])
+            await reply_message(message, "✅ Ответ отправлен.")
+        except Exception as e:
+            await reply_message(message, f"❌ Не удалось отправить ответ: {e}")
+        return
     if low.startswith("/allow ") and message.from_user and message.from_user.id == cfg.owner_id:
-        await admin_allow(int(text.split(maxsplit=1)[1])); await reply_message(message, "🟢 Доступ выдан."); return
+        target = text.split(maxsplit=1)[1].strip()
+        if target.lstrip("@").isdigit():
+            uid = int(target.lstrip("@"))
+        else:
+            found = db.find_user_by_username(target)
+            if not found:
+                await reply_message(message, "❌ Не нашёл пользователя. Он должен хотя бы раз запустить бота (/start), а username нужно указать как @username.")
+                return
+            uid = int(found['user_id'])
+        await admin_allow(uid)
+        try: await bot.send_message(uid, "🟢 Вам выдан доступ к OfferBot!")
+        except Exception: pass
+        await reply_message(message, f"🟢 Доступ выдан пользователю <code>{uid}</code>.")
+        return
     if low.startswith("/block ") and message.from_user and message.from_user.id == cfg.owner_id:
         await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "🔴 Пользователь заблокирован."); return
     if low.startswith("/unblock ") and message.from_user and message.from_user.id == cfg.owner_id:
@@ -655,9 +741,9 @@ async def buy_access_callback(call: CallbackQuery):
 @dp.callback_query(F.data == "back_to_start")
 async def back_to_start_callback(call: CallbackQuery):
     try:
-        await call.message.edit_text("<b>Привет, друг! Ты попал в рай профитов.</b>", reply_markup=main_menu_keyboard())
+        await call.message.edit_text("<b>Привет, друг! Ты попал в рай профитов.</b>", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
     except Exception:
-        await call.message.answer("<b>Привет, друг! Ты попал в рай профитов.</b>", reply_markup=main_menu_keyboard())
+        await call.message.answer("<b>Привет, друг! Ты попал в рай профитов.</b>", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
     await call.answer()
 
 
@@ -831,10 +917,31 @@ async def admin_callback(call: CallbackQuery):
     except ValueError:
         offset = 0
 
+    if action == "allow_username":
+        await call.answer()
+        await call.message.answer("Чтобы выдать доступ по username, отправь команду: <code>/allow @username</code>. Пользователь должен хотя бы раз запустить бота.")
+        return
+    if action == "stats":
+        payments = db.payment_stats()
+        offers = db.stats()
+        today_total, today_accepted, conversion = db.daily_offer_stats()
+        text = ("<b>📊 Статистика OfferBot</b>\n\n"
+                f"👥 Всего пользователей: {db.total_users()}\n"
+                f"💳 Оплат всего: {payments['paid']} · ожидают: {payments['pending']}\n"
+                f"💰 Получено всего: {payments['paid_amount']:g} TON\n"
+                f"📅 Оплат сегодня: {payments['paid_today']} · {payments['amount_today']:g} TON\n"
+                f"🎁 Оферов сегодня: {today_total} · принято: {today_accepted} ({conversion:.0f}%)\n"
+                f"📦 Оферов всего: {sum(int(v) for v in offers.values())}\n"
+                f"🔌 Активных Business-подключений: {sum(1 for r in db.list_connections() if r['is_enabled'])}")
+        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
+        await call.answer()
+        return
     if action == "allow":
         uid = offset
         await admin_allow(uid)
         await call.answer("Доступ выдан")
+        try: await bot.send_message(cfg.owner_id, f"🟢 Доступ выдан пользователю <code>{uid}</code> через админку.")
+        except Exception: pass
         try:
             await bot.send_message(uid, "✅ Доступ к оферам активирован.")
         except Exception:
@@ -930,13 +1037,13 @@ async def offer_callback(call: CallbackQuery):
             gift_url = offer["gift_url"]
             amount_text = display_amount(offer['amount'], offer['currency'])
             if offer["locale"] == "ru":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, чтобы получить {amount_text}."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю для зачисления 1000 Stars."
             elif offer["locale"] == "cn":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转给买家，以收到 {amount_text}。"
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转给买家，以便到账 1000 Stars。"
             elif offer["locale"] == "ar":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> تم بيع الهدية <a href=\"{gift_url}\">{title}</a> بنجاح!\n\n• انقل الهدية إلى المشتري لاستلام {amount_text}."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> تم بيع الهدية <a href=\"{gift_url}\">{title}</a> بنجاح!\n\n• انقل الهدية إلى المشتري لإضافة 1000 Stars إلى رصيدك."
             else:
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Gift: <a href=\"{gift_url}\">{title}</a> successfully sold!\n\n• Transfer the gift to the buyer to receive {amount_text}."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Gift: <a href=\"{gift_url}\">{title}</a> successfully sold!\n\n• Transfer the gift to the buyer to receive 1000 Stars."
             try:
                 sent = await safe_send_business(offer["business_connection_id"], offer["buyer_id"], text=final,
                     reply_markup=transfer_keyboard(url, offer["locale"], offer_id),
@@ -950,13 +1057,13 @@ async def offer_callback(call: CallbackQuery):
                 try: await bot.send_message(offer["seller_id"], f"✅ Ваш офер принят\nПодарок: {title}\nСумма: {display_amount(offer['amount'], offer['currency'])}")
                 except Exception: log.warning("Could not notify seller about accepted offer")
                 if offer["locale"] == "ru":
-                    alert_text = f"Ваш подарок {title} успешно продан.\nПередайте его покупателю, чтобы получить {amount_text}."
+                    alert_text = f"Ваш подарок {title} успешно продан.\nПередайте подарок покупателю для зачисления 1000 Stars."
                 elif offer["locale"] == "cn":
-                    alert_text = f"礼物 {title} 已成功售出。\n请将礼物转给买家以收到 {amount_text}。"
+                    alert_text = f"礼物 {title} 已成功售出。\n请将礼物转给买家，以便到账 1000 Stars。"
                 elif offer["locale"] == "ar":
-                    alert_text = f"تم بيع هديتك {title} بنجاح.\nانقلها إلى المشتري لاستلام {amount_text}."
+                    alert_text = f"تم بيع هديتك {title} بنجاح.\nانقل الهدية إلى المشتري لإضافة 1000 Stars إلى رصيدك."
                 else:
-                    alert_text = f"Your gift {title} was sold successfully.\nTransfer it to the buyer to receive {amount_text}."
+                    alert_text = f"Your gift {title} was sold successfully.\nTransfer the gift to the buyer to receive 1000 Stars."
                 await call.answer(alert_text, show_alert=True)
             except Exception:
                 await call.answer("Не удалось завершить принятие офера. Попробуйте ещё раз.", show_alert=True)

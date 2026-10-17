@@ -179,6 +179,30 @@ class Database:
         with self.connect() as con, con.cursor() as cur:
             cur.execute("SELECT * FROM offer_business_connections ORDER BY updated_at DESC"); return cur.fetchall()
 
+
+    def find_user_by_username(self, username: str):
+        username = username.lstrip("@").lower()
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT user_id,username,first_name,last_name FROM bot_users WHERE LOWER(username)=%s ORDER BY updated_at DESC LIMIT 1", (username,))
+            return cur.fetchone()
+
+    def user_profile_stats(self, user_id: int):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT username,first_name,last_name,created_at FROM bot_users WHERE user_id=%s", (user_id,))
+            user = cur.fetchone()
+            cur.execute("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE status='paid') AS paid, COALESCE(SUM(amount) FILTER (WHERE status='paid'),0) AS spent FROM payments WHERE user_id=%s", (user_id,))
+            payments = cur.fetchone()
+            cur.execute("SELECT COUNT(*) AS total FROM offer_business_connections WHERE user_id=%s AND is_enabled=TRUE", (user_id,))
+            connections = cur.fetchone()
+            cur.execute("SELECT COUNT(*) AS total FROM referral_rewards WHERE referrer_id=%s", (user_id,))
+            referrals = cur.fetchone()
+            return {'user': user, 'payments': payments, 'connections': int(connections['total'] or 0), 'referrals': int(referrals['total'] or 0)}
+
+    def total_users(self) -> int:
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS c FROM bot_users")
+            return int(cur.fetchone()['c'] or 0)
+
     def register_referral(self, user_id: int, referrer_id: int | None):
         if referrer_id == user_id: referrer_id = None
         with self.connect() as con, con.cursor() as cur:
