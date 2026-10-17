@@ -9,6 +9,8 @@ ACCEPT_EMOJI_ID = "5776375003280838798"
 TRANSFER_EMOJI_ID = "5879770735999717115"
 GIFT_EMOJI_ID = "6032937473162614352"
 CONFIRM_EMOJI_ID = "5800595351589195950"  # Красный эмодзи для кнопки подтверждения
+PREMIUM_EMOJI_ID = "5825794181183836432"  # Премиум эмодзи для кнопки "Готово"
+DONE_EMOJI_ID = "5800595351589195950"  # Эмодзи для кнопки "Готово"
 
 
 def normalize_nft(raw: str):
@@ -27,7 +29,7 @@ def parse_offer(text: str):
       .офер араб https://t.me/nft/PartySparkler-140864 150 stars
       offer https://t.me/nft/PartySparkler-140864 150 stars en
     """
-    tokens = text.strip().split()
+    tokens =    text.strip().split()
     locale = "ru"
     language_aliases = {
         "en": "en", "eng": "en", "англ": "en", "английский": "en", "английском": "en", "english": "en",

