@@ -1038,7 +1038,7 @@ async def offer_callback(call: CallbackQuery):
             gift_url = html.escape(offer["gift_url"], quote=True)
             amount_text = display_amount(offer['amount'], offer['currency'])
             if offer["locale"] == "ru":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю для зачисления 1000 Stars."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, чтобы получить {display_amount(offer['amount'], offer['currency'])}."
             elif offer["locale"] == "cn":
                 final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转给买家，以便到账 1000 Stars。"
             elif offer["locale"] == "ar":
