@@ -695,10 +695,10 @@ def admin_payments_text(offset: int = 0):
         lines.append("Платежей пока нет.")
     for r in rows:
         username = f"@{r['username']}" if r.get('username') else (r.get('first_name') or "Пользователь")
-        status = "✅" if r['status'] == 'paid' else "🕓"
+        status = "✅" if r['status'] == 'paid' else ("❌" if r['status'] == 'failed' else "🕓")
         dt = r['paid_at'] or r['created_at']
         date_text = dt.strftime("%d.%m %H:%M") if dt else "—"
-        lines.append(f"{status} <b>#{r['id']}</b> · {float(r['amount']):g} TON · {date_text}\n{username} · <code>{r['user_id']}</code>")
+        lines.append(f"{status} <b>#{r['id']}</b> · {float(r['amount']):g} TON · {date_text}\n{username} · <code>{r['user_id']}</code> · {html.escape(r.get('provider') or 'cryptopay')} · memo <code>{html.escape(r.get('memo') or '')}</code>")
     return "\n".join(lines), has_next
 
 
@@ -753,112 +753,139 @@ async def create_payment_callback(call: CallbackQuery):
     if not call.from_user:
         await call.answer("Ошибка")
         return
-    
-    if not cfg.ton_wallet:
-        await call.answer("⚠️ Платежи временно недоступны", show_alert=True)
+    rows = []
+    if cfg.cryptopay_api_token:
+        rows.append([InlineKeyboardButton(text="🤖 CryptoBot · TON", callback_data="pay_provider:crypto")])
+    if not rows:
+        await call.answer("⚠️ Платёжные способы не настроены. Напишите в поддержку.", show_alert=True)
         return
-    
-    # Генерируем уникальный memo
-    memo = secrets.token_hex(8).upper()
-    
-    # Создаём платёж в БД
-    payment_id = db.create_payment(call.from_user.id, memo, cfg.payment_amount)
-    
-    # Формируем deeplink для TonKeeper
-    amount_nano = int(cfg.payment_amount * 1_000_000_000)  # конвертируем в nanoTON
-    tonkeeper_url = f"https://app.tonkeeper.com/transfer/{cfg.ton_wallet}?amount={amount_nano}&text={memo}"
-    
-    text = (f"💎 <b>Оплата доступа</b>\n\n"
-            f"Сумма: <b>{cfg.payment_amount:g} TON</b>\n"
-            f"Кошелёк: <code>{cfg.ton_wallet}</code>\n\n"
-            f"⚠️ <b>ВАЖНО!</b> При отправке укажите комментарий (memo):\n"
-            f"<code>{memo}</code>\n\n"
-            f"Без memo платёж не будет засчитан!")
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="💎 Открыть TonKeeper", url=tonkeeper_url)
-    ], [
-        InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_payment:{memo}")
-    ], [
-        InlineKeyboardButton(text="« Назад", callback_data="buy_access")
-    ]])
-    
+    rows.append([InlineKeyboardButton(text="« Назад", callback_data="buy_access")])
+    text = (f"💎 <b>Оплата доступа</b>\n\nСумма: <b>{cfg.payment_amount:g} TON</b>\n"
+            "Выберите способ оплаты:")
     try:
-        await call.message.edit_text(text, reply_markup=kb)
-    except:
-        await call.message.answer(text, reply_markup=kb)
+        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    except Exception:
+        await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     await call.answer()
-    
 
+
+async def _create_payment_record(user_id: int, provider: str):
+    memo = secrets.token_hex(8).upper()
+    payment_id = db.create_payment(user_id, memo, cfg.payment_amount, provider=provider)
+    return payment_id, memo
+
+
+@dp.callback_query(F.data == "pay_provider:crypto")
+async def create_cryptopay_payment(call: CallbackQuery):
+    if not call.from_user:
+        await call.answer("Ошибка"); return
+    if not cfg.cryptopay_api_token:
+        await call.answer("CryptoBot не настроен", show_alert=True); return
+    # Reuse an existing open invoice instead of creating a new one on repeated taps.
+    pending = db.get_pending_payment(call.from_user.id)
+    if pending and pending.get("provider") == "cryptopay" and pending.get("provider_invoice_id") and pending.get("pay_url"):
+        memo = pending["memo"]
+        text = (f"🤖 <b>Ваш счёт CryptoBot уже создан</b>\n\nСумма: <b>{float(pending['amount']):g} TON</b>\n"
+                "Используйте этот счёт, чтобы не создавать повторную оплату. После оплаты нажмите «Проверить оплату».")
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🤖 Открыть счёт CryptoBot", url=pending["pay_url"])],
+            [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_payment:{memo}")],
+            [InlineKeyboardButton(text="« Назад", callback_data="buy_access")]])
+        try: await call.message.edit_text(text, reply_markup=kb)
+        except Exception: await call.message.answer(text, reply_markup=kb)
+        await call.answer("Используем существующий счёт")
+        return
+    payment_id, memo = await _create_payment_record(call.from_user.id, "cryptopay")
+    try:
+        timeout = aiohttp.ClientTimeout(total=15)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(
+                "https://pay.crypt.bot/api/createInvoice",
+                headers={"Crypto-Pay-API-Token": cfg.cryptopay_api_token},
+                json={"asset": "TON", "amount": f"{cfg.payment_amount:.9f}".rstrip("0").rstrip("."),
+                      "description": f"OfferBot access · user {call.from_user.id}", "payload": memo,
+                      "allow_comments": False, "allow_anonymous": False, "expires_in": 3600},
+            ) as response:
+                data = await response.json(content_type=None)
+                if response.status != 200 or not data.get("ok"):
+                    raise RuntimeError(f"Crypto Pay API rejected invoice: HTTP {response.status}; {data.get('error', data)}")
+        invoice = data["result"]
+        invoice_id = str(invoice["invoice_id"])
+        pay_url = invoice.get("bot_invoice_url") or invoice.get("mini_app_invoice_url") or invoice.get("web_app_invoice_url")
+        if not pay_url:
+            raise RuntimeError("Crypto Pay did not return an invoice URL")
+        db.set_payment_provider_data(payment_id, invoice_id, pay_url)
+        text = (f"🤖 <b>Оплата через CryptoBot</b>\n\nСумма: <b>{cfg.payment_amount:g} TON</b>\n"
+                "Нажмите кнопку оплаты, затем вернитесь сюда и проверьте платёж.")
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🤖 Оплатить в CryptoBot", url=pay_url)],
+            [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_payment:{memo}")],
+            [InlineKeyboardButton(text="« Способы оплаты", callback_data="create_payment")]])
+        try: await call.message.edit_text(text, reply_markup=kb)
+        except Exception: await call.message.answer(text, reply_markup=kb)
+        await call.answer()
+    except Exception:
+        log.exception("CryptoBot invoice creation failed for payment_id=%s", payment_id)
+        try:
+            db.fail_payment(payment_id)
+        except Exception:
+            log.exception("Could not mark failed payment record id=%s", payment_id)
+        await call.answer("Не удалось создать счёт CryptoBot. Попробуйте ещё раз позже.", show_alert=True)
+
+
+async def _payment_provider_is_paid(payment) -> bool:
+    provider = payment.get("provider") or "ton_wallet"
+    timeout = aiohttp.ClientTimeout(total=12)
+    if provider == "cryptopay":
+        if not cfg.cryptopay_api_token or not payment.get("provider_invoice_id"):
+            return False
 
 @dp.callback_query(F.data.startswith("check_payment:"))
 async def check_payment_callback(call: CallbackQuery):
     if not call.from_user:
-        await call.answer("Ошибка")
-        return
-    
+        await call.answer("Ошибка"); return
     memo = call.data.split(":", 1)[1]
     payment = db.get_payment_by_memo(memo)
-    
     if not payment:
-        await call.answer("❌ Платёж не найден", show_alert=True)
-        return
-    
+        await call.answer("❌ Платёж не найден", show_alert=True); return
     if payment["user_id"] != call.from_user.id:
-        await call.answer("❌ Это не ваш платёж", show_alert=True)
-        return
-    
+        await call.answer("❌ Это не ваш платёж", show_alert=True); return
     if payment["status"] == "paid":
-        await call.answer("✅ Платёж уже обработан", show_alert=True)
-        return
-    
-    # Быстрая проверка в блокчейне с коротким сетевым тайм-аутом.
-    if not cfg.ton_wallet:
-        await call.answer("⚠️ Кошелёк не настроен", show_alert=True)
-        return
-    
-    # Сначала отвечаем Telegram на callback, затем показываем результат в сообщении.
+        await call.answer("✅ Платёж уже обработан", show_alert=True); return
     await call.answer("⏳ Проверяю оплату…")
-    is_paid = await check_ton_payment(cfg.ton_wallet, memo, payment["amount"])
-    
+    try:
+        is_paid = await _payment_provider_is_paid(payment)
+    except Exception:
+        log.exception("Payment status check failed: memo=%s provider=%s", memo, payment.get("provider"))
+        try:
+            await call.message.answer("Не удалось проверить платёж из-за ошибки платёжного сервиса. Попробуйте позже.")
+        except Exception: pass
+        return
     if is_paid:
-        # Подтверждаем оплату
         referrer_id = db.confirm_payment_access_and_reward_referrer(payment["id"], call.from_user.id, 3.0)
-        if referrer_id is None and db.get_payment_by_memo(memo)["status"] != "paid":
-            # Payment was not confirmed (for example, another check is in progress).
+        latest = db.get_payment_by_memo(memo)
+        if referrer_id is None and latest["status"] != "paid":
             return
         if referrer_id:
             try: await bot.send_message(referrer_id, "🎉 По вашей реферальной ссылке купили доступ. Начислено 3 TON.")
             except Exception: log.exception("Referral notification failed")
-        
-        # Отправляем приветственное сообщение
-        success_text = ("✅ <b>Оплата подтверждена! Доступ автоматически выдан.</b>\n\n" + instruction())
-        
-        try:
-            await call.message.edit_text(success_text, reply_markup=purchase_success_keyboard())
-        except:
-            await call.message.answer(success_text, reply_markup=purchase_success_keyboard())
-        
-        # Уведомляем овнера
+        success_text = "✅ <b>Оплата подтверждена! Доступ автоматически выдан.</b>\n\n" + instruction()
+        try: await call.message.edit_text(success_text, reply_markup=purchase_success_keyboard())
+        except Exception: await call.message.answer(success_text, reply_markup=purchase_success_keyboard())
         try:
             await bot.send_message(cfg.owner_id,
-                f"💰 <b>Оплата подтверждена</b> · {payment['amount']:g} TON\n"
-                f"{display_name(call.from_user)} · <code>{call.from_user.id}</code>\n"
-                f"Memo: <code>{memo}</code>",
+                f"💰 <b>Оплата подтверждена</b> · {payment['amount']:g} TON · {html.escape(payment.get('provider') or 'ton_wallet')}\n"
+                f"{display_name(call.from_user)} · <code>{call.from_user.id}</code>\nMemo: <code>{memo}</code>",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="💳 История платежей", callback_data="adm:payments:0")],
                     [InlineKeyboardButton(text="⚙️ Админка", callback_data="adm:home:0")]]))
-        except:
-            pass
-        
+        except Exception: log.exception("Owner payment notification failed")
     else:
         base_text = (call.message.text or "").split("\n\n🔎 Статус:", 1)[0]
         try:
-            await call.message.edit_text(
-                base_text + "\n\n🔎 Статус: платёж пока не найден. Проверь сумму и memo, подожди несколько секунд и нажми «Проверить оплату» ещё раз.",
-                reply_markup=call.message.reply_markup)
+            await call.message.edit_text(base_text + "\n\n🔎 Статус: платёж пока не подтверждён. Если вы уже оплатили, подождите немного и нажмите «Проверить оплату» ещё раз.", reply_markup=call.message.reply_markup)
         except Exception:
-            await call.message.answer("Платёж пока не найден. Проверь сумму и memo, затем попробуй ещё раз.")
+            await call.message.answer("Платёж пока не подтверждён. Подождите и попробуйте проверить ещё раз.")
 
 
 @dp.callback_query(F.data.startswith("approve_payment:"))

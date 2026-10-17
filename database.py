@@ -50,7 +50,11 @@ class Database:
         """CREATE TABLE IF NOT EXISTS payments (
             id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, memo TEXT NOT NULL UNIQUE,
             amount DOUBLE PRECISION NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), paid_at TIMESTAMPTZ)""",
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), paid_at TIMESTAMPTZ,
+            provider TEXT NOT NULL DEFAULT 'ton_wallet', provider_invoice_id TEXT, pay_url TEXT)""",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'ton_wallet'",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS provider_invoice_id TEXT",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS pay_url TEXT",
         """CREATE TABLE IF NOT EXISTS referrals (
             user_id BIGINT PRIMARY KEY, referred_by BIGINT, balance DOUBLE PRECISION NOT NULL DEFAULT 0,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
@@ -243,10 +247,19 @@ class Database:
             cur.execute("SELECT status,COUNT(*) AS c FROM gift_offers GROUP BY status")
             return {r['status']: r['c'] for r in cur.fetchall()}
 
-    def create_payment(self, user_id: int, memo: str, amount: float) -> int:
+    def create_payment(self, user_id: int, memo: str, amount: float, provider: str = 'ton_wallet') -> int:
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("INSERT INTO payments(user_id,memo,amount,status,created_at) VALUES(%s,%s,%s,'pending',NOW()) RETURNING id", (user_id,memo,amount))
+            cur.execute("INSERT INTO payments(user_id,memo,amount,status,created_at,provider) VALUES(%s,%s,%s,'pending',NOW(),%s) RETURNING id", (user_id,memo,amount,provider))
             return int(cur.fetchone()['id'])
+
+    def set_payment_provider_data(self, payment_id: int, provider_invoice_id: str, pay_url: str):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("UPDATE payments SET provider_invoice_id=%s,pay_url=%s WHERE id=%s", (str(provider_invoice_id), pay_url, payment_id))
+
+    def fail_payment(self, payment_id: int):
+        """Mark an invoice-creation failure; never overwrite a confirmed payment."""
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("UPDATE payments SET status='failed' WHERE id=%s AND status='pending' AND provider_invoice_id IS NULL", (payment_id,))
 
     def get_payment_by_memo(self, memo: str):
         with self.connect() as con, con.cursor() as cur:
@@ -302,7 +315,7 @@ class Database:
         offset = max(0, int(offset))
         with self.connect() as con, con.cursor() as cur:
             cur.execute("""SELECT p.id,p.user_id,p.memo,p.amount,p.status,p.created_at,p.paid_at,
-                u.username,u.first_name FROM payments p LEFT JOIN bot_users u ON u.user_id=p.user_id
+                p.provider,p.provider_invoice_id,p.pay_url,u.username,u.first_name FROM payments p LEFT JOIN bot_users u ON u.user_id=p.user_id
                 ORDER BY p.created_at DESC LIMIT %s OFFSET %s""", (limit, offset))
             return cur.fetchall()
 

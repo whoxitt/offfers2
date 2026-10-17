@@ -26,6 +26,8 @@ class Config:
     ton_wallet: str = ""
     payment_amount: float = 10.0
     tonkeeper_deeplink: str = "https://app.tonkeeper.com/transfer/{address}?amount={amount}&text={memo}"
+    cryptopay_api_token: str = ""
+    bot_username: str = ""
 
 
 def load_config() -> Config:
@@ -70,4 +72,6 @@ def load_config() -> Config:
         offer_expire_hours=float(os.getenv("OFFER_EXPIRE_HOURS", "24")),
         ton_wallet=os.getenv("TON_WALLET", "").strip(),
         payment_amount=float(os.getenv("PAYMENT_AMOUNT", "10")),
+        cryptopay_api_token=os.getenv("CRYPTOPAY_API_TOKEN", "").strip(),
+        bot_username=os.getenv("BOT_USERNAME", "").strip().lstrip("@"),
     )
