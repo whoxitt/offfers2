@@ -399,6 +399,10 @@ async def on_start(message: Message):
 
 
 async def is_channel_subscriber(user_id: int) -> bool:
+    # Если требование подписки отключено, всегда возвращаем True
+    if not cfg.require_subscription:
+        return True
+    
     try:
         member = await bot.get_chat_member(chat_id=cfg.channel_id, user_id=user_id)
         status = getattr(member, "status", "")
