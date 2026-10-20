@@ -60,18 +60,10 @@ def offer_keyboard(offer_id: int, locale: str, currency: str = ""):
     }
     decline, accept = labels.get(locale, labels["ru"])
     
-    # Добавляем эмодзи в зависимости от валюты
-    decline_emoji = DECLINE_EMOJI_ID
-    if currency == "gram":
-        accept_emoji = GRAM_EMOJI_ID
-    elif currency == "stars":
-        accept_emoji = STARS_EMOJI_ID
-    else:
-        accept_emoji = ACCEPT_EMOJI_ID
-    
+    # Стандартные эмодзи для кнопок
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=decline, icon_custom_emoji_id=decline_emoji, callback_data=f"of:decline:{offer_id}"),
-        InlineKeyboardButton(text=accept, icon_custom_emoji_id=accept_emoji, callback_data=f"of:accept:{offer_id}"),
+        InlineKeyboardButton(text=decline, icon_custom_emoji_id=DECLINE_EMOJI_ID, callback_data=f"of:decline:{offer_id}"),
+        InlineKeyboardButton(text=accept, icon_custom_emoji_id=ACCEPT_EMOJI_ID, callback_data=f"of:accept:{offer_id}"),
     ]])
 
 
@@ -316,7 +308,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
 
     seller_name = " ".join(x for x in [bc["first_name"], bc["last_name"]] if x) or "Пользователь"
     title = gift_title(parsed["gift_name"], parsed["gift_number"])
-    amount = display_amount(parsed["amount"], parsed["currency"])
+    amount = display_amount(parsed["amount"], parsed["currency"], with_emoji=True)
     remaining = format_remaining((expires - now).total_seconds(), parsed["locale"])
     if parsed["locale"] == "en":
         body = f"Usеr <b>{seller_name}</b> оffers <b>{amount}</b> fоr thе gift <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nОffer ехpires in <b>{remaining}</b>."
@@ -1286,15 +1278,15 @@ async def offer_callback(call: CallbackQuery):
             url = offer["transfer_url"] or f"tg://user?id={offer['seller_id']}"
             title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
             gift_url = html.escape(offer["gift_url"], quote=True)
-            amount_text = display_amount(offer['amount'], offer['currency'])
+            amount_text = display_amount(offer['amount'], offer['currency'], with_emoji=True)
             if offer["locale"] == "ru":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, чтобы получить {display_amount(offer['amount'], offer['currency'])}."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, чтобы получить {amount_text}."
             elif offer["locale"] == "cn":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转交给买家，以获得 {display_amount(offer['amount'], offer['currency'])}。"
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转交给买家，以获得 {amount_text}。"
             elif offer["locale"] == "ar":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> تم بيع الهدية <a href=\"{gift_url}\">{title}</a> بنجاح!\n\n• انقل الهدية إلى المشتري لتحصل على {display_amount(offer['amount'], offer['currency'])}."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> تم بيع الهدية <a href=\"{gift_url}\">{title}</a> بنجاح!\n\n• انقل الهدية إلى المشتري لتحصل على {amount_text}."
             else:
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Gift: <a href=\"{gift_url}\">{title}</a> suссеssfully sоld!\n\n• Trаnsfеr thе gift tо thе buyеr tо rесеivе {display_amount(offer['amount'], offer['currency'])}."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Gift: <a href=\"{gift_url}\">{title}</a> suссеssfully sоld!\n\n• Trаnsfеr thе gift tо thе buyеr tо rесеivе {amount_text}."
             try:
                 sent = await safe_send_business(offer["business_connection_id"], offer["buyer_id"], text=final,
                     reply_markup=transfer_keyboard(url, offer["locale"], offer_id),
@@ -1305,7 +1297,7 @@ async def offer_callback(call: CallbackQuery):
                 db.set_offer_message(offer_id, offer["buyer_id"], sent.message_id)
                 db.update_offer_status(offer_id, "accepted", url)
                 log.info("[OFFER ACCEPT] offer_id=%s seller_id=%s buyer_id=%s", offer_id, offer["seller_id"], offer["buyer_id"])
-                try: await bot.send_message(offer["seller_id"], f"✅ Ваш офер принят\nПодарок: {title}\nСумма: {display_amount(offer['amount'], offer['currency'])}")
+                try: await bot.send_message(offer["seller_id"], f"✅ Ваш офер принят\nПодарок: {title}\nСумма: {amount_text}")
                 except Exception: log.warning("Could not notify seller about accepted offer")
                 if offer["locale"] == "ru":
                     alert_text = f"Ваш подарок {title} успешно продан.\nПередайте подарок покупателю для зачисления {amount_text}."

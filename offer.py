@@ -70,20 +70,24 @@ def parse_offer(text: str):
     return {**nft, "amount": amount, "currency": currency, "locale": locale}
 
 
-def display_amount(amount: float, currency: str, with_emoji: bool = False, emoji_gram_id: str = "", emoji_stars_id: str = "") -> str:
+def display_amount(amount: float, currency: str, with_emoji: bool = False) -> str:
     value = f"{amount:g}"
-    # Обход PEER_FLOOD: латинская 'а' вместо кириллической
-    if currency == "gram":
-        if with_emoji and emoji_gram_id:
-            # Используем невидимый символ для добавления эмодзи через inline keyboard
-            return f"{value} Grаm"
-        return f"{value} Grаm"
-    elif currency == "rub":
-        return f"{value}₽"  # БЕЗ ПРОБЕЛА
+    if with_emoji:
+        # Для отображения в тексте с эмодзи
+        if currency == "gram":
+            return f"{value} <tg-emoji emoji-id=\"5255894863303450180\">💎</tg-emoji>"
+        elif currency == "rub":
+            return f"{value}₽"
+        else:  # stars
+            return f"{value} <tg-emoji emoji-id=\"5321485469249198987\">⭐</tg-emoji>"
     else:
-        if with_emoji and emoji_stars_id:
+        # Обход PEER_FLOOD: латинская 'а' вместо кириллической
+        if currency == "gram":
+            return f"{value} Grаm"
+        elif currency == "rub":
+            return f"{value}₽"
+        else:
             return f"{value} Stаrs"
-        return f"{value} Stаrs"
 
 
 def gift_title(name: str, number: int) -> str:
