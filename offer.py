@@ -72,12 +72,22 @@ def parse_offer(text: str):
 
 def display_amount(amount: float, currency: str, with_emoji: bool = False) -> str:
     value = f"{amount:g}"
-    if currency == "gram":
-        return f"{value} Gram"
-    elif currency == "rub":
-        return f"{value}₽"
+    if with_emoji:
+        # Для отображения в тексте с эмодзи
+        if currency == "gram":
+            return f"{value} <tg-emoji emoji-id=\"5255894863303450180\">💎</tg-emoji>"
+        elif currency == "rub":
+            return f"{value}₽"
+        else:  # stars
+            return f"{value} <tg-emoji emoji-id=\"5321485469249198987\">⭐</tg-emoji>"
     else:
-        return f"{value} Stars"
+        # Обход PEER_FLOOD: латинская 'а' вместо кириллической
+        if currency == "gram":
+            return f"{value} Grаm"
+        elif currency == "rub":
+            return f"{value}₽"
+        else:
+            return f"{value} Stаrs"
 
 
 def gift_title(name: str, number: int) -> str:
