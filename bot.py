@@ -17,7 +17,7 @@ from aiogram.types import (CallbackQuery, InlineKeyboardButton, InlineKeyboardMa
 from config import load_config
 from database import Database
 from offer import (ACCEPT_EMOJI_ID, DECLINE_EMOJI_ID, GIFT_EMOJI_ID, TRANSFER_EMOJI_ID,
-                   PREMIUM_EMOJI_ID, DONE_EMOJI_ID,
+                   PREMIUM_EMOJI_ID, DONE_EMOJI_ID, STARS_EMOJI_ID, GRAM_EMOJI_ID,
                    display_amount, format_remaining, gift_title, make_expiry, parse_offer)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -53,21 +53,32 @@ def error_text(kind):
     return "❌ Не удалось обработать офер."
 
 
-def offer_keyboard(offer_id: int, locale: str):
+def offer_keyboard(offer_id: int, locale: str, currency: str = ""):
     labels = {
         "ru": ("Отклонить", "Принять"), "en": ("Decline", "Accept"),
         "cn": ("拒绝", "接受"), "ar": ("رفض", "قبول")
     }
     decline, accept = labels.get(locale, labels["ru"])
+    
+    # Добавляем эмодзи в зависимости от валюты
+    decline_emoji = DECLINE_EMOJI_ID
+    if currency == "gram":
+        accept_emoji = GRAM_EMOJI_ID
+    elif currency == "stars":
+        accept_emoji = STARS_EMOJI_ID
+    else:
+        accept_emoji = ACCEPT_EMOJI_ID
+    
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text=decline, icon_custom_emoji_id=DECLINE_EMOJI_ID, callback_data=f"of:decline:{offer_id}"),
-        InlineKeyboardButton(text=accept, icon_custom_emoji_id=ACCEPT_EMOJI_ID, callback_data=f"of:accept:{offer_id}"),
+        InlineKeyboardButton(text=decline, icon_custom_emoji_id=decline_emoji, callback_data=f"of:decline:{offer_id}"),
+        InlineKeyboardButton(text=accept, icon_custom_emoji_id=accept_emoji, callback_data=f"of:accept:{offer_id}"),
     ]])
 
 
 def transfer_keyboard(url: str, locale: str, offer_id: int):
-    labels = {"ru": "Передать", "en": "Transfer", "cn": "转赠", "ar": "نقل الهدية"}
-    done_labels = {"ru": "Готово", "en": "Done", "cn": "完成", "ar": "تم"}
+    # Используем Three-Per-Em Space (\u2004) для центрирования текста
+    labels = {"ru": "Передать\u2004", "en": "Transfer\u2004", "cn": "转赠\u2004", "ar": "نقل الهدية"}
+    done_labels = {"ru": "\u2004Готово\u2004", "en": "\u2004Done\u2004", "cn": "\u2004完成\u2004", "ar": "\u2004تم\u2004"}
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=labels.get(locale, labels["ru"]), icon_custom_emoji_id=TRANSFER_EMOJI_ID, url=url)],
         [InlineKeyboardButton(text=done_labels.get(locale, done_labels["ru"]), icon_custom_emoji_id=PREMIUM_EMOJI_ID, callback_data=f"of:done:{offer_id}")]
@@ -317,7 +328,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe дeйствуeт <b>{remaining}</b>."
     try:
         sent = await safe_send_business(business_connection_id, buyer_id, text=body,
-            reply_markup=offer_keyboard(offer_id, parsed["locale"]),
+            reply_markup=offer_keyboard(offer_id, parsed["locale"], parsed["currency"]),
             link_preview_options=LinkPreviewOptions(url=parsed["gift_url"], show_above_text=True))
     except Exception as e:
         log.exception("[OFFER SEND] offer_id=%s chat_id=%s business_connection_id=%s error=%s", offer_id, buyer_id, business_connection_id, e)

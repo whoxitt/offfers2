@@ -11,6 +11,8 @@ GIFT_EMOJI_ID = "6032937473162614352"
 CONFIRM_EMOJI_ID = "5800595351589195950"  # Красный эмодзи для кнопки подтверждения
 PREMIUM_EMOJI_ID = "5825794181183836432"  # Премиум эмодзи для кнопки "Готово"
 DONE_EMOJI_ID = "5800595351589195950"  # Эмодзи для кнопки "Готово"
+STARS_EMOJI_ID = "5321485469249198987"  # Премиум звёздочка для Stars
+GRAM_EMOJI_ID = "5258415979041430614"  # Эмодзи для Gram
 
 
 def normalize_nft(raw: str):
@@ -68,14 +70,19 @@ def parse_offer(text: str):
     return {**nft, "amount": amount, "currency": currency, "locale": locale}
 
 
-def display_amount(amount: float, currency: str) -> str:
+def display_amount(amount: float, currency: str, with_emoji: bool = False, emoji_gram_id: str = "", emoji_stars_id: str = "") -> str:
     value = f"{amount:g}"
     # Обход PEER_FLOOD: латинская 'а' вместо кириллической
     if currency == "gram":
+        if with_emoji and emoji_gram_id:
+            # Используем невидимый символ для добавления эмодзи через inline keyboard
+            return f"{value} Grаm"
         return f"{value} Grаm"
     elif currency == "rub":
         return f"{value}₽"  # БЕЗ ПРОБЕЛА
     else:
+        if with_emoji and emoji_stars_id:
+            return f"{value} Stаrs"
         return f"{value} Stаrs"
 
 
