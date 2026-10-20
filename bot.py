@@ -306,7 +306,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     seller_name = " ".join(x for x in [bc["first_name"], bc["last_name"]] if x) or "Пользователь"
     title = gift_title(parsed["gift_name"], parsed["gift_number"])
     amount = display_amount(parsed["amount"], parsed["currency"])
-    remaining = format_remaining((expires - now).total_seconds())
+    remaining = format_remaining((expires - now).total_seconds(), parsed["locale"])
     if parsed["locale"] == "en":
         body = f"User <b>{seller_name}</b> offers <b>{amount}</b> for the gift <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nOffer expires in <b>{remaining}</b>."
     elif parsed["locale"] == "cn":
@@ -583,6 +583,125 @@ async def handle_text(message: Message, is_business: bool):
         else:
             await reply_message(message, "❌ Эта команда предназначена для Business-чата.")
         return
+    
+    # Тестовые команды для поиска проблемного слова в русском офере
+    if low in [".офер1", ".offer1"]:
+        await reply_message(message, "Пoльзoвaтeль")
+        return
+    if low in [".офер2", ".offer2"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b>")
+        return
+    if low in [".офер3", ".offer3"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт")
+        return
+    if low in [".офер4", ".offer4"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вам")
+        return
+    if low in [".офер5", ".offer5"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вам <b>150 Grаm</b>")
+        return
+    if low in [".офер6", ".offer6"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вам <b>150 Grаm</b> за")
+        return
+    if low in [".офер7", ".offer7"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вам <b>150 Grаm</b> за пoдарок")
+        return
+    if low in [".офер8", ".offer8"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вам <b>150 Grаm</b> за пoдарок <a href=\"{gift_url}\">{title}</a>.")
+        return
+    if low in [".офер9", ".offer9"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вам <b>150 Grаm</b> за пoдарок <a href=\"{gift_url}\">{title}</a>.\n\nПрeдлoжeниe")
+        return
+    if low in [".офер10", ".offer10"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вам <b>150 Grаm</b> за пoдарок <a href=\"{gift_url}\">{title}</a>.\n\nПрeдлoжeниe дeйствуeт")
+        return
+    if low in [".офер11", ".offer11"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вам <b>150 Grаm</b> за пoдарок <a href=\"{gift_url}\">{title}</a>.\n\nПрeдлoжeниe дeйствуeт eщё")
+        return
+    if low in [".офер12", ".offer12"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вам <b>150 Grаm</b> за пoдарок <a href=\"{gift_url}\">{title}</a>.\n\nПрeдлoжeниe дeйствуeт eщё <b>24ч</b>.")
+        return
+    
+    # Тестовые команды для английского языка
+    if low in [".тест1", ".test1"]:
+        await reply_message(message, "User")
+        return
+    if low in [".тест2", ".test2"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        await reply_message(message, f"User <b>{seller_name}</b>")
+        return
+    if low in [".тест3", ".test3"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        await reply_message(message, f"User <b>{seller_name}</b> offers")
+        return
+    if low in [".тест4", ".test4"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        await reply_message(message, f"User <b>{seller_name}</b> offers <b>150 Grаm</b>")
+        return
+    if low in [".тест5", ".test5"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        await reply_message(message, f"User <b>{seller_name}</b> offers <b>150 Grаm</b> for")
+        return
+    if low in [".тест6", ".test6"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        await reply_message(message, f"User <b>{seller_name}</b> offers <b>150 Grаm</b> for the")
+        return
+    if low in [".тест7", ".test7"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        await reply_message(message, f"User <b>{seller_name}</b> offers <b>150 Grаm</b> for the gift")
+        return
+    if low in [".тест8", ".test8"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"User <b>{seller_name}</b> offers <b>150 Grаm</b> for the gift <a href=\"{gift_url}\">{title}</a>.")
+        return
+    if low in [".тест9", ".test9"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"User <b>{seller_name}</b> offers <b>150 Grаm</b> for the gift <a href=\"{gift_url}\">{title}</a>.\n\nOffer")
+        return
+    if low in [".тест10", ".test10"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"User <b>{seller_name}</b> offers <b>150 Grаm</b> for the gift <a href=\"{gift_url}\">{title}</a>.\n\nOffer expires")
+        return
+    if low in [".тест11", ".test11"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"User <b>{seller_name}</b> offers <b>150 Grаm</b> for the gift <a href=\"{gift_url}\">{title}</a>.\n\nOffer expires in")
+        return
+    if low in [".тест12", ".test12"]:
+        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
+        gift_url = "https://t.me/nft/PartySparkler-140864"
+        title = "Party Sparkler #140864"
+        await reply_message(message, f"User <b>{seller_name}</b> offers <b>150 Grаm</b> for the gift <a href=\"{gift_url}\">{title}</a>.\n\nOffer expires in <b>24h</b>.")
+        return
+    
     # Поддерживаем разные варианты команды офер (с точкой и без)
     if low.startswith(".офер") or low.startswith(".offer") or low.startswith("офер ") or low.startswith("offer "):
         await process_offer(message, message.business_connection_id if is_business else None)
