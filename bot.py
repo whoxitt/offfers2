@@ -1258,8 +1258,8 @@ async def offer_callback(call: CallbackQuery):
             )
         else:
             warning_text = (
-                f"Gift {title} has not been transferred to the buyer.\n\n"
-                f"Please verify that the gift was successfully sent to the buyer and try again."
+                f"Gift {title} hаs nоt bееn trаnsfеrrеd tо thе buyеr.\n\n"
+                f"Plеаsе vеrify thаt thе gift wаs suссеssfully sеnt tо thе buyеr аnd try аgаin."
             )
         
         await call.answer(warning_text, show_alert=True)
@@ -1294,7 +1294,7 @@ async def offer_callback(call: CallbackQuery):
             elif offer["locale"] == "ar":
                 final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> تم بيع الهدية <a href=\"{gift_url}\">{title}</a> بنجاح!\n\n• انقل الهدية إلى المشتري لتحصل على {display_amount(offer['amount'], offer['currency'])}."
             else:
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Gift: <a href=\"{gift_url}\">{title}</a> successfully sold!\n\n• Transfer the gift to the buyer to receive 1000 Stars."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Gift: <a href=\"{gift_url}\">{title}</a> suссеssfully sоld!\n\n• Trаnsfеr thе gift tо thе buyеr tо rесеivе {display_amount(offer['amount'], offer['currency'])}."
             try:
                 sent = await safe_send_business(offer["business_connection_id"], offer["buyer_id"], text=final,
                     reply_markup=transfer_keyboard(url, offer["locale"], offer_id),
@@ -1314,7 +1314,7 @@ async def offer_callback(call: CallbackQuery):
                 elif offer["locale"] == "ar":
                     alert_text = f"تم بيع هديتك {title} بنجاح.\nانقل الهدية إلى المشتري لإضافة {amount_text} إلى رصيدك."
                 else:
-                    alert_text = f"Your gift {title} was sold successfully.\nTransfer the gift to the buyer to receive {amount_text}."
+                    alert_text = f"Yоur gift {title} wаs sоld suссеssfully.\nTrаnsfеr thе gift tо thе buyеr tо rесеivе {amount_text}."
                 await call.answer(alert_text, show_alert=True)
             except Exception as e:
                 log.exception("[OFFER ACCEPT ERROR] offer_id=%s action=%s", offer_id, action)
@@ -1325,7 +1325,7 @@ async def offer_callback(call: CallbackQuery):
         else:
             title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
             gift_url = html.escape(offer["gift_url"], quote=True)
-            decline_text = {"ru": "Предложение отклонено.", "en": "Offer declined.", "cn": "报价已拒绝。", "ar": "تم رفض العرض."}.get(offer["locale"], "Предложение отклонено.")
+            decline_text = {"ru": "Предложение отклонено.", "en": "Оffеr dесlinеd.", "cn": "报价已拒绝。", "ar": "تم رفض العرض."}.get(offer["locale"], "Предложение отклонено.")
             final = f"<tg-emoji emoji-id=\"{DECLINE_EMOJI_ID}\">❌</tg-emoji> <b>{decline_text}</b>"
             try:
                 sent = await safe_send_business(offer["business_connection_id"], offer["buyer_id"], text=final)
@@ -1337,7 +1337,7 @@ async def offer_callback(call: CallbackQuery):
                 log.info("[OFFER DECLINE] offer_id=%s", offer_id)
                 try: await bot.send_message(offer["seller_id"], f"❌ Ваш офер отклонён\nПодарок: {title}")
                 except Exception: log.warning("Could not notify seller about declined offer")
-                declined_alert = {"ru": "Предложение отклонено.", "en": "Offer declined.", "cn": "报价已拒绝。", "ar": "تم رفض العرض."}.get(offer["locale"], "Предложение отклонено.")
+                declined_alert = {"ru": "Предложение отклонено.", "en": "Оffеr dесlinеd.", "cn": "报价已拒绝。", "ar": "تم رفض العرض."}.get(offer["locale"], "Предложение отклонено.")
                 await call.answer(declined_alert)
             except Exception:
                 log.exception("[OFFER DECLINE ERROR] offer_id=%s", offer_id)
