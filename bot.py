@@ -887,7 +887,7 @@ async def buy_access_callback(call: CallbackQuery):
         await call.answer("✅ У вас уже есть доступ к оферам!", show_alert=True)
         return
     
-    text = f"Доступ к оферам стоит <b>{cfg.payment_amount:g} TON</b>.\n\nПри блоке аккаунта напишите в поддержку @witensea."
+    text = f"💎 <b>Доступ к оферам</b>\n\nСтоимость: <b>{cfg.payment_amount:g} TON</b>\n\nОткройте оплату и следуйте инструкции."
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="💎 Купить имбу", callback_data="create_payment")
     ], [
@@ -935,7 +935,7 @@ async def create_payment_callback(call: CallbackQuery):
 
 
 async def _create_payment_record(user_id: int, provider: str):
-    memo = secrets.token_hex(8).upper()
+    memo = str(secrets.randbelow(900_000_000_000) + 100_000_000_000)
     payment_id = db.create_payment(user_id, memo, cfg.payment_amount, provider=provider)
     return payment_id, memo
 
@@ -1014,18 +1014,17 @@ async def create_ton_wallet_payment(call: CallbackQuery):
         amount = float(cfg.payment_amount)
     from urllib.parse import quote
     nano = int(round(amount * 1_000_000_000))
-    pay_url = f"ton://transfer/{wallet}?amount={nano}&text={quote(memo)}"
-    text = (f"💎 <b>Оплата напрямую через TON</b>\\n\\n"
-            f"Сумма: <b>{amount:g} TON</b>\\n"
-            f"Адрес: <code>{html.escape(wallet)}</code>\\n"
-            f"Обязательный комментарий (memo): <code>{html.escape(memo)}</code>\\n\\n"
-            "Отправьте точную сумму с этим комментарием. Без комментария платёж не подтвердится. "
-            "После отправки нажмите «Проверить оплату».")
+    # Tonkeeper deep link pre-fills recipient, amount and required numeric memo.
+    pay_url = f"https://app.tonkeeper.com/transfer/{wallet}?amount={nano}&text={quote(memo)}"
+    text = ("💎 <b>Оплата через TON</b>\n\n"
+            f"Переведите <b>{amount:g} TON</b> на указанный адрес.\n\n"
+            f"<b>TON-адрес</b>\n<code>{html.escape(wallet)}</code>\n\n"
+            f"<b>Комментарий (обязательно)</b>\n<code>{html.escape(memo)}</code>\n\n"
+            "Комментарий состоит только из цифр и уникален для вашего платежа. Укажите его без изменений — "
+            "без правильного комментария платёж не подтвердится автоматически.")
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 Открыть TON Wallet", url=pay_url)],
-        [InlineKeyboardButton(text="🔎 Открыть TON Scan", url=f"https://tonscan.org/address/{wallet}")],
-        [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_payment:{memo}")],
-        [InlineKeyboardButton(text="« Способы оплаты", callback_data="create_payment")]])
+        [InlineKeyboardButton(text="💎 Оплатить через Keepr", url=pay_url)],
+        [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_payment:{memo}")]])
     try: await call.message.edit_text(text, reply_markup=kb)
     except Exception: await call.message.answer(text, reply_markup=kb)
     await call.answer()
