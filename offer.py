@@ -75,11 +75,11 @@ def display_amount(amount: float, currency: str, with_emoji: bool = False) -> st
     if with_emoji:
         # Для отображения в тексте с эмодзи
         if currency == "gram":
-            return f"{value} <tg-emoji emoji-id=\"5255894863303450180\">💎</tg-emoji>"
+            return f"{value}<tg-emoji emoji-id=\"5255894863303450180\">💎</tg-emoji>"
         elif currency == "rub":
             return f"{value}₽"
         else:  # stars
-            return f"{value} <tg-emoji emoji-id=\"5321485469249198987\">⭐</tg-emoji>"
+            return f"{value}<tg-emoji emoji-id=\"5321485469249198987\">⭐</tg-emoji>"
     else:
         # Обход PEER_FLOOD: латинская 'а' вместо кириллической
         if currency == "gram":
