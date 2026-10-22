@@ -3,6 +3,7 @@ from contextlib import contextmanager
 from typing import Any, Optional, Dict
 import os
 import psycopg2
+from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
 
 
@@ -11,19 +12,42 @@ class Database:
         if not database_url:
             raise RuntimeError("DATABASE_URL is required. Add a PostgreSQL service in Railway and reference its DATABASE_URL.")
         self.database_url = database_url
+        # Reuse PostgreSQL connections instead of opening a new TCP connection
+        # for every database method. Values can be adjusted in Bothost env vars.
+        minconn = max(1, int(os.getenv("DB_POOL_MIN", "1")))
+        maxconn = max(minconn, int(os.getenv("DB_POOL_MAX", "10")))
+        self.pool = ThreadedConnectionPool(
+            minconn=minconn,
+            maxconn=maxconn,
+            dsn=self.database_url,
+            cursor_factory=RealDictCursor,
+            connect_timeout=10,
+        )
         self.init_schema()
 
     @contextmanager
     def connect(self):
-        con = psycopg2.connect(self.database_url, cursor_factory=RealDictCursor, connect_timeout=15)
+        # psycopg2 is synchronous; this pool reduces connection setup overhead.
+        # Every checked-out connection is returned even when a query fails.
+        con = self.pool.getconn()
+        discard = False
         try:
             yield con
             con.commit()
         except Exception:
-            con.rollback()
+            try:
+                con.rollback()
+            except Exception:
+                discard = True
             raise
         finally:
-            con.close()
+            self.pool.putconn(con, close=discard)
+
+    def close(self):
+        """Close all pooled PostgreSQL connections during graceful shutdown."""
+        if getattr(self, "pool", None) is not None:
+            self.pool.closeall()
+            self.pool = None
 
     def init_schema(self):
         statements = [
