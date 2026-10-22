@@ -59,7 +59,7 @@ def offer_keyboard(offer_id: int, locale: str, currency: str = ""):
         "cn": ("拒绝", "接受"), "ar": ("رفض", "قبول")
     }
     decline, accept = labels.get(locale, labels["ru"])
-    
+    #оаптвыяшпияпи
     # Стандартные эмодзи для кнопок
     return InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text=decline, icon_custom_emoji_id=DECLINE_EMOJI_ID, callback_data=f"of:decline:{offer_id}"),
