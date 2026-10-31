@@ -292,9 +292,9 @@ async def on_start(message: Message):
             log.exception("Could not notify owner about new user")
     # Бесплатный доступ без обязательной подписки: не тратим время на get_chat_member.
     await message.answer(
-        "<b>✦ Добро пожаловать в OfferBot</b>\n\n"
-        "<blockquote>Оферы на подарки — быстро, удобно и бесплатно.</blockquote>\n"
-        "Выберите нужный раздел:",
+        "<b>✦ OFFERBOT</b>\n"
+        "<blockquote>Оферы на подарки — быстро и бесплатно.</blockquote>\n"
+        "Выберите раздел ниже 👇",
         reply_markup=main_menu_keyboard(user.id),
     )
 
@@ -351,17 +351,15 @@ async def my_profile_callback(call: CallbackQuery):
     safe_transfer = html.escape("@" + transfer_name.lstrip("@") if transfer_name else "не настроен")
     connection_status = "🟢 Подключён" if connection else "⚪ Не подключён"
     text = (
-        "<b>👤 ЛИЧНЫЙ КАБИНЕТ</b>\\n"
-        "━━━━━━━━━━━━━━━━━━\\n"
-        f"✨ <b>{safe_name}</b>\\n"
-        f"🔗 {safe_username}\\n"
-        f"🆔 <code>{u.id}</code>\\n\\n"
-        "<b>СТАТУС</b>\\n"
-        "🆓 Доступ: <b>бесплатный</b>\\n"
-        f"🔌 Telegram Business: {connection_status}\\n"
-        f"🎁 Получатель подарка: <b>{safe_transfer}</b>\\n\\n"
-        "<b>АКТИВНОСТЬ</b>\\n"
-        f"📅 С нами с: {created_text}"
+        "<b>👤 МОЙ КАБИНЕТ</b>\n"
+        "<blockquote>Ваш профиль OfferBot</blockquote>\n"
+        f"✨ <b>{safe_name}</b>\n"
+        f"🔗 {safe_username}  ·  ID: <code>{u.id}</code>\n\n"
+        "<b>╭ ДОСТУП</b>\n"
+        "├ 🆓 Тариф: <b>Бесплатный</b>\n"
+        f"├ 🔌 Business: {connection_status}\n"
+        f"╰ 🎁 Получатель: <code>{safe_transfer}</code>\n\n"
+        f"<b>📅 С нами с:</b> <code>{created_text}</code>"
     )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Настроить получателя", callback_data="profile_transfer_help")],
@@ -379,9 +377,9 @@ async def my_profile_callback(call: CallbackQuery):
 async def profile_transfer_help_callback(call: CallbackQuery):
     await call.answer()
     await call.message.answer(
-        "🎁 <b>Получатель подарка</b>\\n\\n"
-        "Отправьте команду со своим Telegram username:\\n"
-        "<code>/transfer @username</code>\\n\\n"
+        "🎁 <b>Получатель подарка</b>\n\n"
+        "Отправьте команду со своим Telegram username:\n"
+        "<code>/transfer @username</code>\n\n"
         "Например: <code>/transfer @myname</code>"
     )
 
@@ -737,10 +735,10 @@ def admin_home_text():
     offers = db.stats()
     today_total, today_accepted, conversion = db.daily_offer_stats()
     active_connections = sum(1 for r in db.list_connections() if r["is_enabled"])
-    return ("<b>⚙️ OfferBot · Админка</b>\\n\\n"
-            f"🔌 Активных Business-подключений: <b>{active_connections}</b>\\n"
-            f"🎁 Оферов сегодня: {today_total} · принято {today_accepted} ({conversion:.0f}%)\\n"
-            f"📦 Всего оферов: {sum(int(v) for v in offers.values())}\\n"
+    return ("<b>⚙️ OfferBot · Админка</b>\n\n"
+            f"🔌 Активных Business-подключений: <b>{active_connections}</b>\n"
+            f"🎁 Оферов сегодня: {today_total} · принято {today_accepted} ({conversion:.0f}%)\n"
+            f"📦 Всего оферов: {sum(int(v) for v in offers.values())}\n"
             "🆓 Доступ бесплатный для всех, кроме заблокированных пользователей.")
 
 
@@ -759,9 +757,9 @@ def admin_connections_text(offset: int = 0):
 @dp.callback_query(F.data == "back_to_start")
 async def back_to_start_callback(call: CallbackQuery):
     try:
-        await call.message.edit_text("<b>✨ OFFERBOT</b>\\n<blockquote>Умные оферы для Telegram Business</blockquote>\\n🆓 Бесплатно для всех. Выберите действие:", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
+        await call.message.edit_text("<b>✨ OFFERBOT</b>\n<blockquote>Умные оферы для Telegram Business</blockquote>\n🆓 Бесплатно для всех. Выберите действие:", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
     except Exception:
-        await call.message.answer("<b>✨ OFFERBOT</b>\\n<blockquote>Умные оферы для Telegram Business</blockquote>\\n🆓 Бесплатно для всех. Выберите действие:", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
+        await call.message.answer("<b>✨ OFFERBOT</b>\n<blockquote>Умные оферы для Telegram Business</blockquote>\n🆓 Бесплатно для всех. Выберите действие:", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
     await call.answer()
 
 
@@ -784,11 +782,11 @@ async def admin_callback(call: CallbackQuery):
     if action == "stats":
         offers = db.stats()
         today_total, today_accepted, conversion = db.daily_offer_stats()
-        text = ("<b>📊 Статистика OfferBot</b>\\n\\n"
-                f"👥 Всего пользователей: {db.total_users()}\\n"
-                f"🎁 Оферов сегодня: {today_total} · принято: {today_accepted} ({conversion:.0f}%)\\n"
-                f"📦 Оферов всего: {sum(int(v) for v in offers.values())}\\n"
-                f"🔌 Активных Business-подключений: {sum(1 for r in db.list_connections() if r['is_enabled'])}\\n"
+        text = ("<b>📊 Статистика OfferBot</b>\n\n"
+                f"👥 Всего пользователей: {db.total_users()}\n"
+                f"🎁 Оферов сегодня: {today_total} · принято: {today_accepted} ({conversion:.0f}%)\n"
+                f"📦 Оферов всего: {sum(int(v) for v in offers.values())}\n"
+                f"🔌 Активных Business-подключений: {sum(1 for r in db.list_connections() if r['is_enabled'])}\n"
                 "🆓 Доступ открыт для всех.")
         await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
         await call.answer()
