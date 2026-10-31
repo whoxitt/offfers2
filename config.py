@@ -24,10 +24,6 @@ class Config:
     support_url: str = "https://t.me/witensea"
     users_chat_url: str = "https://t.me/"
     offer_expire_hours: float = 24.0
-    ton_wallet: str = ""
-    payment_amount: float = 10.0
-    tonkeeper_deeplink: str = "https://app.tonkeeper.com/transfer/{address}?amount={amount}&text={memo}"
-    cryptopay_api_token: str = ""
     bot_username: str = ""
 
 
@@ -54,9 +50,9 @@ def load_config() -> Config:
         if item and item.lstrip("-").isdigit():
             ids.append(int(item))
 
-    mode = os.getenv("OFFER_ACCESS_MODE", "owner").strip().lower()
-    if mode not in {"owner", "all"}:
-        mode = "owner"
+    # Доступ к оферам теперь бесплатный для всех. Ограничение остаётся только
+    # для пользователей, которых администратор явно заблокировал.
+    mode = "all"
 
     return Config(
         bot_token=token,
@@ -66,14 +62,11 @@ def load_config() -> Config:
         business_debug=_bool(os.getenv("BUSINESS_DEBUG", "1"), True),
         offer_access_mode=mode,
         offer_always_allowed_ids=tuple(ids),
-        require_subscription=_bool(os.getenv("REQUIRE_SUBSCRIPTION", "true"), True),
+        require_subscription=_bool(os.getenv("REQUIRE_SUBSCRIPTION", "false"), False),
         channel_id=os.getenv("CHANNEL_ID", "").strip(),
         channel_url=os.getenv("CHANNEL_URL", "").strip(),
         support_url=os.getenv("SUPPORT_URL", "https://t.me/witensea").strip(),
         users_chat_url=os.getenv("USERS_CHAT_URL", "https://t.me/").strip(),
         offer_expire_hours=float(os.getenv("OFFER_EXPIRE_HOURS", "24")),
-        ton_wallet=os.getenv("TON_WALLET", "").strip(),
-        payment_amount=float(os.getenv("PAYMENT_AMOUNT", "10")),
-        cryptopay_api_token=os.getenv("CRYPTOPAY_API_TOKEN", "").strip(),
         bot_username=os.getenv("BOT_USERNAME", "").strip().lstrip("@"),
     )
