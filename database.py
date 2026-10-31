@@ -15,7 +15,7 @@ class Database:
         # Reuse PostgreSQL connections instead of opening a new TCP connection
         # for every database method. Values can be adjusted in Bothost env vars.
         minconn = max(1, int(os.getenv("DB_POOL_MIN", "1")))
-        maxconn = max(minconn, int(os.getenv("DB_POOL_MAX", "10")))
+        maxconn = max(minconn, int(os.getenv("DB_POOL_MAX", "15")))
         self.pool = ThreadedConnectionPool(
             minconn=minconn,
             maxconn=maxconn,
@@ -215,16 +215,21 @@ class Database:
             return cur.fetchone()
 
     def user_profile_stats(self, user_id: int):
+        """Fetch profile, active connection count and transfer profile in one DB round trip."""
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("SELECT username,first_name,last_name,created_at FROM bot_users WHERE user_id=%s", (user_id,))
-            user = cur.fetchone()
-            cur.execute("SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE status='paid') AS paid, COALESCE(SUM(amount) FILTER (WHERE status='paid'),0) AS spent FROM payments WHERE user_id=%s", (user_id,))
-            payments = cur.fetchone()
-            cur.execute("SELECT COUNT(*) AS total FROM offer_business_connections WHERE user_id=%s AND is_enabled=TRUE", (user_id,))
-            connections = cur.fetchone()
-            cur.execute("SELECT COUNT(*) AS total FROM referral_rewards WHERE referrer_id=%s", (user_id,))
-            referrals = cur.fetchone()
-            return {'user': user, 'payments': payments, 'connections': int(connections['total'] or 0), 'referrals': int(referrals['total'] or 0)}
+            cur.execute("""SELECT u.username,u.first_name,u.last_name,u.created_at,
+                       (SELECT COUNT(*) FROM offer_business_connections c
+                        WHERE c.user_id=u.user_id AND c.is_enabled=TRUE) AS connections,
+                       p.name AS transfer_name,p.url AS transfer_url
+                       FROM bot_users u LEFT JOIN offer_user_profiles p ON p.user_id=u.user_id
+                       WHERE u.user_id=%s""", (user_id,))
+            row = cur.fetchone()
+            if not row:
+                return {'user': None, 'profile': None, 'payments': None, 'connections': 0, 'referrals': 0}
+            user = {k: row[k] for k in ('username','first_name','last_name','created_at')}
+            profile = {'name': row['transfer_name'], 'url': row['transfer_url']} if row['transfer_name'] or row['transfer_url'] else None
+            return {'user': user, 'profile': profile, 'payments': None,
+                    'connections': int(row['connections'] or 0), 'referrals': 0}
 
     def total_users(self) -> int:
         with self.connect() as con, con.cursor() as cur:

