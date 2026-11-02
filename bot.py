@@ -493,6 +493,19 @@ async def handle_text(message: Message, is_business: bool):
     if low == ".привет" or low == "привет":
         await reply_message(message, "Привет")
         return
+    if low == ".дебаг" or low == "debug":
+        if message.from_user:
+            u = message.from_user
+            with db.connect() as con, con.cursor() as cur:
+                cur.execute("SELECT user_id, username, created_at, updated_at FROM bot_users WHERE user_id=%s OR LOWER(username)=%s ORDER BY created_at", (u.id, (u.username or "").lower()))
+                rows = cur.fetchall()
+                text = f"<b>Записей в базе:</b> {len(rows)}\n\n"
+                for idx, r in enumerate(rows, 1):
+                    created = r['created_at'].strftime("%d.%m.%Y %H:%M") if r.get('created_at') else "—"
+                    updated = r['updated_at'].strftime("%d.%m.%Y %H:%M") if r.get('updated_at') else "—"
+                    text += f"<b>#{idx}</b>\nID: <code>{r['user_id']}</code>\nUsername: @{r.get('username') or '—'}\nСоздан: {created}\nОбновлён: {updated}\n\n"
+                await reply_message(message, text[:4000])
+        return
     if low == ".бизнестест":
         if is_business:
             await reply_message(message, f"✅ Business-сообщение дошло до бота.\n\nConnection:\n<code>{message.business_connection_id}</code>\n\nUser ID:\n<code>{message.from_user.id if message.from_user else '—'}</code>\n\nChat ID:\n<code>{message.chat.id}</code>")
