@@ -2,6 +2,7 @@ import asyncio
 import logging
 import random
 import html
+import uuid
 from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher, F
@@ -17,6 +18,7 @@ from database import Database
 from offer import (ACCEPT_EMOJI_ID, DECLINE_EMOJI_ID, GIFT_EMOJI_ID, TRANSFER_EMOJI_ID,
                    PREMIUM_EMOJI_ID, DONE_EMOJI_ID, STARS_EMOJI_ID, GRAM_EMOJI_ID,
                    display_amount, format_remaining, gift_title, make_expiry, parse_offer)
+from payment import CryptoBotAPI, TonkeeperAPI
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("offerbot")
@@ -350,22 +352,32 @@ async def my_profile_callback(call: CallbackQuery):
     safe_username = html.escape("@" + u.username if u.username else "не указан")
     safe_transfer = html.escape("@" + transfer_name.lstrip("@") if transfer_name else "не настроен")
     connection_status = "🟢 Подключён" if connection else "⚪ Не подключён"
+    
+    # Проверяем доступ
+    has_paid_access = db.has_access(u.id, cfg.owner_id, cfg.offer_access_mode)
+    access_text = "🟢 Активен" if has_paid_access else "🔴 Не оплачен"
+    
     text = (
         "<b>👤 МОЙ КАБИНЕТ</b>\n"
         "<blockquote>Ваш профиль OfferBot</blockquote>\n"
         f"✨ <b>{safe_name}</b>\n"
         f"🔗 {safe_username}  ·  ID: <code>{u.id}</code>\n\n"
         "<b>╭ ДОСТУП</b>\n"
-        "├ 🆓 Тариф: <b>Бесплатный</b>\n"
+        f"├ 💎 Статус: <b>{access_text}</b>\n"
         f"├ 🔌 Business: {connection_status}\n"
         f"╰ 🎁 Получатель: <code>{safe_transfer}</code>\n\n"
         f"<b>📅 С нами с:</b> <code>{created_text}</code>"
     )
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 Настроить получателя", callback_data="profile_transfer_help")],
-        [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
-        [InlineKeyboardButton(text="« Главное меню", callback_data="back_to_start")]
-    ])
+    
+    keyboard_buttons = [[InlineKeyboardButton(text="🎁 Настроить получателя", callback_data="profile_transfer_help")]]
+    
+    if not has_paid_access:
+        keyboard_buttons.insert(0, [InlineKeyboardButton(text="💎 Купить доступ", callback_data="buy_access")])
+    
+    keyboard_buttons.append([InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")])
+    keyboard_buttons.append([InlineKeyboardButton(text="« Главное меню", callback_data="back_to_start")])
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
     try:
         await call.message.edit_text(text, reply_markup=keyboard)
     except Exception:
@@ -382,6 +394,257 @@ async def profile_transfer_help_callback(call: CallbackQuery):
         "<code>/transfer @username</code>\n\n"
         "Например: <code>/transfer @myname</code>"
     )
+
+
+@dp.callback_query(F.data == "buy_access")
+async def buy_access_callback(call: CallbackQuery):
+    """Обработчик кнопки 'Купить доступ'"""
+    if not call.from_user:
+        await call.answer("Ошибка", show_alert=True)
+        return
+    
+    # Проверяем есть ли уже активный платёж
+    pending = db.get_pending_payment(call.from_user.id)
+    if pending:
+        # Показываем существующий платёж
+        await show_payment_options(call.message, call.from_user.id, pending)
+        await call.answer()
+        return
+    
+    # Создаём новый платёж
+    memo = str(uuid.uuid4())[:8].upper()
+    payment_id = db.create_payment(call.from_user.id, memo, cfg.payment_price)
+    
+    await show_payment_options(call.message, call.from_user.id, {
+        'id': payment_id,
+        'memo': memo,
+        'amount': cfg.payment_price
+    })
+    await call.answer()
+
+
+async def show_payment_options(message: Message, user_id: int, payment: dict):
+    """Показать варианты оплаты"""
+    amount = payment['amount']
+    memo = payment['memo']
+    payment_id = payment['id']
+    
+    text = (
+        "<b>💎 ОПЛАТА ДОСТУПА</b>\n\n"
+        f"<b>Стоимость:</b> {amount:g} Gram\n\n"
+        "<b>Выберите способ оплаты:</b>"
+    )
+    
+    keyboard = []
+    
+    # CryptoBot
+    if cfg.cryptobot_token:
+        keyboard.append([InlineKeyboardButton(
+            text="💳 Оплатить через CryptoBot",
+            callback_data=f"pay:crypto:{payment_id}"
+        )])
+    
+    # Tonkeeper
+    if cfg.ton_wallet:
+        keyboard.append([InlineKeyboardButton(
+            text="💎 Оплатить через Tonkeeper",
+            callback_data=f"pay:ton:{payment_id}"
+        )])
+    
+    keyboard.append([InlineKeyboardButton(
+        text="🔄 Проверить оплату",
+        callback_data=f"pay:check:{payment_id}"
+    )])
+    
+    keyboard.append([InlineKeyboardButton(
+        text="« Назад",
+        callback_data="my_profile"
+    )])
+    
+    try:
+        await message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    except Exception:
+        await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+
+
+@dp.callback_query(F.data.startswith("pay:crypto:"))
+async def pay_crypto_callback(call: CallbackQuery):
+    """Оплата через CryptoBot"""
+    if not call.from_user or not cfg.cryptobot_token:
+        await call.answer("Ошибка", show_alert=True)
+        return
+    
+    payment_id = int(call.data.split(":")[2])
+    payment = db.get_payment_by_id(payment_id)
+    
+    if not payment or payment['user_id'] != call.from_user.id:
+        await call.answer("Платёж не найден", show_alert=True)
+        return
+    
+    if payment['status'] == 'paid':
+        await call.answer("✅ Уже оплачено!", show_alert=True)
+        return
+    
+    await call.answer("Создаю счёт...", show_alert=False)
+    
+    # Создаём счёт в CryptoBot
+    crypto_api = CryptoBotAPI(cfg.cryptobot_token)
+    invoice = await crypto_api.create_invoice(
+        amount=payment['amount'],
+        currency="GRAM",
+        description=f"Доступ к OfferBot #{payment_id}"
+    )
+    
+    if not invoice:
+        await call.answer("❌ Ошибка создания счёта", show_alert=True)
+        return
+    
+    invoice_id = invoice.get('invoice_id')
+    pay_url = invoice.get('bot_invoice_url') or invoice.get('mini_app_invoice_url')
+    
+    if not pay_url:
+        await call.answer("❌ Ошибка получения ссылки", show_alert=True)
+        return
+    
+    # Сохраняем данные счёта
+    db.set_payment_provider_data(payment_id, str(invoice_id), pay_url)
+    
+    text = (
+        "<b>💳 ОПЛАТА ЧЕРЕЗ CRYPTOBOT</b>\n\n"
+        f"<b>Сумма:</b> {payment['amount']:g} Gram\n"
+        f"<b>Номер платежа:</b> <code>{payment_id}</code>\n\n"
+        "Нажмите кнопку ниже для оплаты.\n"
+        "После оплаты нажмите <b>🔄 Проверить оплату</b>"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton(text="💳 Оплатить", url=pay_url)],
+        [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"pay:check:{payment_id}")],
+        [InlineKeyboardButton(text="« Назад", callback_data="buy_access")]
+    ]
+    
+    try:
+        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    except Exception:
+        await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+
+
+@dp.callback_query(F.data.startswith("pay:ton:"))
+async def pay_ton_callback(call: CallbackQuery):
+    """Оплата через Tonkeeper"""
+    if not call.from_user or not cfg.ton_wallet:
+        await call.answer("Ошибка", show_alert=True)
+        return
+    
+    payment_id = int(call.data.split(":")[2])
+    payment = db.get_payment_by_id(payment_id)
+    
+    if not payment or payment['user_id'] != call.from_user.id:
+        await call.answer("Платёж не найден", show_alert=True)
+        return
+    
+    if payment['status'] == 'paid':
+        await call.answer("✅ Уже оплачено!", show_alert=True)
+        return
+    
+    memo = payment['memo']
+    amount = payment['amount']
+    
+    # Формируем ссылку для Tonkeeper
+    ton_url = f"ton://transfer/{cfg.ton_wallet}?amount={int(amount * 1_000_000_000)}&text={memo}"
+    
+    text = (
+        "<b>💎 ОПЛАТА ЧЕРЕЗ TONKEEPER</b>\n\n"
+        f"<b>Сумма:</b> {amount:g} Gram\n"
+        f"<b>Кошелёк:</b> <code>{cfg.ton_wallet}</code>\n"
+        f"<b>Комментарий (ОБЯЗАТЕЛЬНО):</b> <code>{memo}</code>\n\n"
+        "⚠️ <b>ВАЖНО!</b> Обязательно укажите комментарий <code>{}</code> при переводе!\n\n"
+        "После оплаты нажмите <b>🔄 Проверить оплату</b>"
+    ).format(memo)
+    
+    keyboard = [
+        [InlineKeyboardButton(text="💎 Открыть Tonkeeper", url=ton_url)],
+        [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"pay:check:{payment_id}")],
+        [InlineKeyboardButton(text="« Назад", callback_data="buy_access")]
+    ]
+    
+    try:
+        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+    except Exception:
+        await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+
+
+@dp.callback_query(F.data.startswith("pay:check:"))
+async def pay_check_callback(call: CallbackQuery):
+    """Проверка оплаты"""
+    if not call.from_user:
+        await call.answer("Ошибка", show_alert=True)
+        return
+    
+    payment_id = int(call.data.split(":")[2])
+    payment = db.get_payment_by_id(payment_id)
+    
+    if not payment or payment['user_id'] != call.from_user.id:
+        await call.answer("Платёж не найден", show_alert=True)
+        return
+    
+    if payment['status'] == 'paid':
+        await call.answer("✅ Уже оплачено!", show_alert=True)
+        await call.message.answer(
+            "✅ <b>ДОСТУП АКТИВИРОВАН!</b>\n\n"
+            "Удачного ворка! Смотри инструкцию 📘",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
+                [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
+            ])
+        )
+        return
+    
+    await call.answer("🔄 Проверяю оплату...", show_alert=False)
+    
+    paid = False
+    
+    # Проверяем CryptoBot
+    if payment.get('provider_invoice_id') and cfg.cryptobot_token:
+        crypto_api = CryptoBotAPI(cfg.cryptobot_token)
+        invoice = await crypto_api.check_invoice(int(payment['provider_invoice_id']))
+        
+        if invoice and invoice.get('status') == 'paid':
+            paid = True
+    
+    # Проверяем Tonkeeper
+    elif cfg.ton_wallet:
+        ton_api = TonkeeperAPI(cfg.ton_wallet)
+        # Конвертируем Gram в TON (1 Gram = 1 TON)
+        paid = await ton_api.check_transaction(payment['memo'], payment['amount'])
+    
+    if paid:
+        # Подтверждаем оплату и выдаём доступ
+        db.confirm_payment_and_grant_access(payment_id, call.from_user.id)
+        
+        await call.message.answer(
+            "✅ <b>ПЛАТЁЖ ПОДТВЕРЖДЁН!</b>\n\n"
+            "Доступ к OfferBot активирован!\n"
+            "Удачного ворка! Смотри инструкцию 📘",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
+                [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
+            ])
+        )
+        
+        # Уведомляем админа
+        try:
+            await bot.send_message(
+                cfg.owner_id,
+                f"💰 <b>Новый платёж!</b>\n"
+                f"Пользователь: {display_name(call.from_user)} (@{call.from_user.username or '—'})\n"
+                f"Сумма: {payment['amount']:g} Gram\n"
+                f"ID: <code>{call.from_user.id}</code>"
+            )
+        except Exception:
+            pass
+    else:
+        await call.answer("❌ Оплата не найдена. Попробуйте позже.", show_alert=True)
 
 @dp.callback_query(F.data == "support_start")
 async def support_start_callback(call: CallbackQuery):

@@ -297,6 +297,10 @@ class Database:
         with self.connect() as con, con.cursor() as cur:
             cur.execute("SELECT * FROM payments WHERE memo=%s", (memo,)); return cur.fetchone()
 
+    def get_payment_by_id(self, payment_id: int):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT * FROM payments WHERE id=%s", (payment_id,)); return cur.fetchone()
+
     def get_pending_payment(self, user_id: int):
         with self.connect() as con, con.cursor() as cur:
             cur.execute("SELECT * FROM payments WHERE user_id=%s AND status='pending' ORDER BY created_at DESC LIMIT 1", (user_id,)); return cur.fetchone()

@@ -25,6 +25,10 @@ class Config:
     users_chat_url: str = "https://t.me/"
     offer_expire_hours: float = 24.0
     bot_username: str = ""
+    # Настройки оплаты
+    payment_price: float = 150.0
+    ton_wallet: str = ""
+    cryptobot_token: str = ""
 
 
 def load_config() -> Config:
@@ -50,9 +54,8 @@ def load_config() -> Config:
         if item and item.lstrip("-").isdigit():
             ids.append(int(item))
 
-    # Доступ к оферам теперь бесплатный для всех. Ограничение остаётся только
-    # для пользователей, которых администратор явно заблокировал.
-    mode = "all"
+    # Доступ к оферам теперь платный
+    mode = "paid"
 
     return Config(
         bot_token=token,
@@ -69,4 +72,7 @@ def load_config() -> Config:
         users_chat_url=os.getenv("USERS_CHAT_URL", "https://t.me/").strip(),
         offer_expire_hours=float(os.getenv("OFFER_EXPIRE_HOURS", "24")),
         bot_username=os.getenv("BOT_USERNAME", "").strip().lstrip("@"),
+        payment_price=float(os.getenv("PAYMENT_PRICE", "150")),
+        ton_wallet=os.getenv("TON_WALLET", "").strip(),
+        cryptobot_token=os.getenv("CRYPTOBOT_TOKEN", "").strip(),
     )
