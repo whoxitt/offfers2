@@ -91,7 +91,8 @@ def subscription_keyboard():
 
 def main_menu_keyboard(user_id: int | None = None):
     rows = [
-        [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")],
+        [InlineKeyboardButton(text="� Купить доступ", callback_data="buy_access")],
+        [InlineKeyboardButton(text="�👤 Мой кабинет", callback_data="my_profile")],
         [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
         [InlineKeyboardButton(text="🛟 Техподдержка", callback_data="support_start")]
     ]
@@ -174,10 +175,18 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         buyer_username = sender.username
         buyer_url = f"tg://user?id={buyer_id}"
         if db.is_blocked(seller_id) or int(bc["is_blocked"]):
-            await reply_message(message, "❌ Оферы для вашего Business-профиля пока не разрешены. Обратитесь к овнеру для получения доступа.")
+            await reply_message(message, "❌ Вы заблокированы. Обратитесь в поддержку.")
             return
         if not db.has_access(seller_id, cfg.owner_id, cfg.offer_access_mode):
-            await reply_message(message, "❌ Оферы для вашего Business-профиля пока не разрешены. Обратитесь к овнеру для получения доступа.")
+            await reply_message(
+                message, 
+                "🔒 <b>Доступ не оплачен</b>\n\n"
+                "Для отправки оферов необходимо купить доступ.\n"
+                f"Стоимость: <b>{cfg.payment_price:g} Gram</b>",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💎 Купить доступ", url=f"https://t.me/{cfg.bot_username}?start=buy")]
+                ])
+            )
             return
     else:
         seller_id = sender.id
@@ -186,10 +195,18 @@ async def process_offer(message: Message, business_connection_id: str | None = N
             await reply_message(message, "❌ Для офера сначала подключите Telegram Business к этому боту.")
             return
         if db.is_blocked(seller_id) or int(bc["is_blocked"]):
-            await reply_message(message, "❌ Оферы для вашего Business-профиля пока не разрешены. Обратитесь к овнеру для получения доступа.")
+            await reply_message(message, "❌ Вы заблокированы. Обратитесь в поддержку.")
             return
         if not db.has_access(seller_id, cfg.owner_id, cfg.offer_access_mode):
-            await reply_message(message, "❌ Оферы для вашего Business-профиля пока не разрешены. Обратитесь к овнеру для получения доступа.")
+            await reply_message(
+                message, 
+                "🔒 <b>Доступ не оплачен</b>\n\n"
+                "Для отправки оферов необходимо купить доступ.\n"
+                f"Стоимость: <b>{cfg.payment_price:g} Gram</b>",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="💎 Купить доступ", url=f"https://t.me/{cfg.bot_username}?start=buy")]
+                ])
+            )
             return
         buyer_id = message.chat.id
         buyer_username = message.chat.username if message.chat else None
@@ -292,10 +309,42 @@ async def on_start(message: Message):
             await bot.send_message(cfg.owner_id, f"👤 <b>Новый пользователь</b>\n{display_name(user)} · @{user.username or 'без username'}\nID: <code>{user.id}</code>")
         except Exception:
             log.exception("Could not notify owner about new user")
-    # Бесплатный доступ без обязательной подписки: не тратим время на get_chat_member.
+    
+    # Проверка подписки на канал (если включена)
+    if cfg.require_subscription and not await is_channel_subscriber(user.id):
+        await message.answer(
+            "<b>✦ OFFERBOT</b>\n"
+            "<blockquote>Оферы на подарки</blockquote>\n\n"
+            "Для использования бота подпишись на канал 👇",
+            reply_markup=subscription_keyboard()
+        )
+        return
+    
+    # Обработка параметра /start buy
+    if message.text and "buy" in message.text.lower():
+        # Проверяем есть ли уже доступ
+        if db.has_access(user.id, cfg.owner_id, cfg.offer_access_mode):
+            await message.answer(
+                "✅ <b>У вас уже есть доступ!</b>\n\n"
+                "Вы можете пользоваться всеми функциями бота.",
+                reply_markup=main_menu_keyboard(user.id)
+            )
+            return
+        
+        # Показываем варианты оплаты
+        pending = db.get_pending_payment(user.id)
+        if not pending:
+            # Создаём новый платёж
+            memo = str(uuid.uuid4())[:8].upper()
+            payment_id = db.create_payment(user.id, memo, cfg.payment_price)
+            pending = {'id': payment_id, 'memo': memo, 'amount': cfg.payment_price}
+        
+        await show_payment_options(message, user.id, pending)
+        return
+    
     await message.answer(
         "<b>✦ OFFERBOT</b>\n"
-        "<blockquote>Оферы на подарки — быстро и бесплатно.</blockquote>\n"
+        "<blockquote>Оферы на подарки</blockquote>\n"
         "Выберите раздел ниже 👇",
         reply_markup=main_menu_keyboard(user.id),
     )
@@ -652,6 +701,29 @@ async def support_start_callback(call: CallbackQuery):
     await call.message.answer("🛟 Напиши сообщение в поддержку одним сообщением. Мы передадим его администратору. Для отмены отправь /cancel.")
     await call.answer()
 
+@dp.callback_query(F.data == "back_to_start")
+async def back_to_start_callback(call: CallbackQuery):
+    if not call.from_user:
+        await call.answer("Ошибка", show_alert=True)
+        return
+    
+    try:
+        await call.message.edit_text(
+            "<b>✦ OFFERBOT</b>\n"
+            "<blockquote>Оферы на подарки</blockquote>\n"
+            "Выберите раздел ниже 👇",
+            reply_markup=main_menu_keyboard(call.from_user.id),
+        )
+    except Exception:
+        await call.message.answer(
+            "<b>✦ OFFERBOT</b>\n"
+            "<blockquote>Оферы на подарки</blockquote>\n"
+            "Выберите раздел ниже 👇",
+            reply_markup=main_menu_keyboard(call.from_user.id),
+        )
+    await call.answer()
+
+
 @dp.callback_query(F.data == "show_instruction")
 async def show_instruction_callback(call: CallbackQuery):
     try:
@@ -668,17 +740,29 @@ async def on_business_connection(bc: BusinessConnection):
     should_notify = bc.is_enabled and (previous is None or not previous["is_enabled"])
     db.upsert_business_connection(bc.id, bc.user.id, bc.user.username, bc.user.first_name, bc.user.last_name, bc.is_enabled)
     log.info("Business connection id=%s user_id=%s enabled=%s", bc.id, bc.user.id, bc.is_enabled)
-    # Уведомляем администратора только о новом подключении или повторном включении.
+    
+    # Уведомляем администратора о новом подключении
     if should_notify and bc.user.id != cfg.owner_id:
-        if not db.is_blocked(bc.user.id):
-            db.add_access(bc.user.id)
-            db.set_connection_blocked(bc.id, False)
-            state = "🟢 Бесплатный доступ активен"
-        else:
+        # Проверяем есть ли доступ
+        has_access = db.has_access(bc.user.id, cfg.owner_id, cfg.offer_access_mode)
+        is_blocked = db.is_blocked(bc.user.id)
+        
+        if is_blocked:
             state = "⛔ Пользователь заблокирован"
+            db.set_connection_blocked(bc.id, True)
+        elif has_access:
+            state = "🟢 Доступ оплачен"
+            db.set_connection_blocked(bc.id, False)
+        else:
+            state = "🔴 Доступ не оплачен"
+            db.set_connection_blocked(bc.id, True)
+        
         try:
             await bot.send_message(cfg.owner_id,
-                f"🔌 <b>Business подключён</b>\n{display_name(bc.user)} · <code>{bc.user.id}</code>\nДоступ: {state}",
+                f"🔌 <b>Business подключён</b>\n"
+                f"{display_name(bc.user)} · @{bc.user.username or '—'}\n"
+                f"ID: <code>{bc.user.id}</code>\n"
+                f"Статус: {state}",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text="🟢 Дать доступ", callback_data=f"adm:allow:{bc.user.id}"),
                     InlineKeyboardButton(text="⛔ Блок", callback_data=f"adm:block:{bc.user.id}")],
@@ -936,20 +1020,13 @@ async def handle_text(message: Message, is_business: bool):
     # Доступ выдаётся автоматически, без уведомления/подтверждения владельца.
     if low == "/code free" and not is_business and message.from_user:
         user = message.from_user
-        if not await is_channel_subscriber(user.id):
-            await reply_message(
-                message,
-                "Сначала подпишись на канал и отправь /start, затем повтори /code free.",
-                reply_markup=subscription_keyboard(),
-            )
-            return
         db.register_user(user.id, user.username, user.first_name, user.last_name)
         db.add_access(user.id)
         db.unblock_offer_user(user.id)
         connection = db.get_connection_for_user(user.id)
         if connection:
             db.set_connection_blocked(connection["connection_id"], False)
-        await reply_message(message, "✅ Бесплатный доступ активирован! Теперь можешь пользоваться OfferBot.")
+        await reply_message(message, "✅ Доступ активирован! Удачного ворка! Смотри инструкцию 📘")
         return
     if low.startswith("/admin") or low.startswith("/админ"):
         await admin_command(message)
@@ -1061,15 +1138,6 @@ def admin_connections_text(offset: int = 0):
         name = (r.get('first_name') or "Пользователь").replace("<", "&lt;").replace(">", "&gt;")
         lines.append(f"{enabled} {name} · <code>{r['user_id']}</code>")
     return "\n".join(lines), len(rows) == 8
-
-
-@dp.callback_query(F.data == "back_to_start")
-async def back_to_start_callback(call: CallbackQuery):
-    try:
-        await call.message.edit_text("<b>✨ OFFERBOT</b>\n<blockquote>Умные оферы для Telegram Business</blockquote>\n🆓 Бесплатно для всех. Выберите действие:", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
-    except Exception:
-        await call.message.answer("<b>✨ OFFERBOT</b>\n<blockquote>Умные оферы для Telegram Business</blockquote>\n🆓 Бесплатно для всех. Выберите действие:", reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
-    await call.answer()
 
 
 @dp.callback_query(F.data.startswith("adm:"))

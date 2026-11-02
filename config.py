@@ -65,7 +65,7 @@ def load_config() -> Config:
         business_debug=_bool(os.getenv("BUSINESS_DEBUG", "1"), True),
         offer_access_mode=mode,
         offer_always_allowed_ids=tuple(ids),
-        require_subscription=_bool(os.getenv("REQUIRE_SUBSCRIPTION", "false"), False),
+        require_subscription=_bool(os.getenv("REQUIRE_SUBSCRIPTION", "true"), True),
         channel_id=os.getenv("CHANNEL_ID", "").strip(),
         channel_url=os.getenv("CHANNEL_URL", "").strip(),
         support_url=os.getenv("SUPPORT_URL", "https://t.me/witensea").strip(),
