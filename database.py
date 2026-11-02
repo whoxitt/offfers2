@@ -16,6 +16,7 @@ class Database:
         # for every database method. Values can be adjusted in Bothost env vars.
         minconn = max(1, int(os.getenv("DB_POOL_MIN", "1")))
         maxconn = max(minconn, int(os.getenv("DB_POOL_MAX", "15")))
+        print(f"[DB] Creating connection pool: min={minconn}, max={maxconn}")
         self.pool = ThreadedConnectionPool(
             minconn=minconn,
             maxconn=maxconn,
@@ -23,7 +24,9 @@ class Database:
             cursor_factory=RealDictCursor,
             connect_timeout=10,
         )
+        print("[DB] Connection pool created, initializing schema...")
         self.init_schema()
+        print("[DB] Database initialized successfully")
 
     @contextmanager
     def connect(self):
