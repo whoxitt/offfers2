@@ -1074,7 +1074,7 @@ async def offer_callback(call: CallbackQuery):
             else:
                 alert_amount_text = f"{offer['amount']:g}₽"
             if offer["locale"] == "ru":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, для зачисления {amount_text} на Ваш баланс."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, чтобы получить {amount_text}."
             elif offer["locale"] == "cn":
                 final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转交给买家，以获得 {amount_text}。"
             elif offer["locale"] == "ar":
@@ -1094,13 +1094,13 @@ async def offer_callback(call: CallbackQuery):
                 try: await bot.send_message(offer["seller_id"], f"✅ Ваш офер принят\nПодарок: {title}\nСумма: {amount_text}")
                 except Exception: log.warning("Could not notify seller about accepted offer")
                 if offer["locale"] == "ru":
-                    alert_text = f"Ваш подарок {title} успешно продан.\n\nПередайте подарок покупателю для зачисления {alert_amount_text} на ваш баланс."
+                    alert_text = " "
                 elif offer["locale"] == "cn":
-                    alert_text = f"礼物 {title} 已成功售出。\n请将礼物转给买家，以便到账 {alert_amount_text}。"
+                    alert_text = " "
                 elif offer["locale"] == "ar":
-                    alert_text = f"تم بيع هديتك {title} بنجاح.\nانقل الهدية إلى المشتري لإضافة {alert_amount_text} إلى رصيدك."
+                    alert_text = " "
                 else:
-                    alert_text = f"Yоur gift {title} wаs sоld suссеssfully.\nTrаnsfеr thе gift tо thе buyеr tо rесеivе {alert_amount_text}."
+                    alert_text = " "
                 await call.answer(alert_text, show_alert=True)
             except Exception as e:
                 log.exception("[OFFER ACCEPT ERROR] offer_id=%s action=%s", offer_id, action)
