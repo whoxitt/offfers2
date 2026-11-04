@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import random
 import html
 import uuid
 from datetime import datetime, timezone
@@ -126,7 +125,7 @@ async def safe_send_business(connection_id, chat_id, **kwargs):
             last_exc = e
             if attempt >= 5:
                 break
-            await asyncio.sleep(e.retry_after + random.uniform(0.1, 0.4))
+            await asyncio.sleep(e.retry_after)
     raise last_exc
 
 
@@ -212,7 +211,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     transfer_username = profile["name"] if profile and profile["name"] else seller_username
     transfer_url = (f"tg://send_gift?to={transfer_username.lstrip('@')}" if transfer_username else f"tg://user?id={seller_id}")
     now = datetime.now(timezone.utc)
-    expires = make_expiry(now, 23 + 59 / 60)
+    expires = make_expiry(now, cfg.offer_expire_hours)
     data = dict(seller_id=seller_id, seller_username=seller_username, buyer_id=buyer_id,
                 buyer_username=buyer_username, buyer_url=buyer_url, gift_name=parsed["gift_name"],
                 gift_number=parsed["gift_number"], gift_url=parsed["gift_url"], amount=parsed["amount"],
@@ -247,19 +246,47 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
+
+    # Удаление исходной команды запускаем параллельно с отправкой офера,
+    # чтобы не ждать завершения двух сетевых запросов последовательно.
+    delete_task = asyncio.create_task(delete_source(message, business_connection_id))
     try:
-        sent = await safe_send_business(business_connection_id, buyer_id, text=body,
-            reply_markup=markup)
+        # Сначала отправляем карточку NFT над текстом, затем отдельным API-вызовом
+        # прикрепляем inline-кнопки. Для Business-чата это также принудительно
+        # отправляет получателю отдельное обновление клавиатуры.
+        sent = await safe_send_business(
+            business_connection_id,
+            buyer_id,
+            text=body,
+            link_preview_options=LinkPreviewOptions(url=parsed["gift_url"], show_above_text=True),
+        )
         log.info("OFFER_SEND_SUCCESS offer_id=%s telegram_message_id=%s", offer_id, sent.message_id)
         log.info("OFFER_MESSAGE_ID offer_id=%s message_id=%s chat_id=%s", offer_id, sent.message_id, buyer_id)
-    except Exception as e:
+    except Exception:
         log.exception("OFFER_SEND_ERROR offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
+        await delete_task
         db.delete_offer(offer_id)
         await reply_message(message, "❌ Не удалось отправить офер. Попробуйте ещё раз позже.")
         return
+
+    # Сохраняем ID до прикрепления клавиатуры, чтобы callback уже мог найти офер.
     db.set_offer_message(offer_id, buyer_id, sent.message_id)
     log.info("OFFER_SEND_SUCCESS_STORED offer_id=%s chat_id=%s message_id=%s", offer_id, buyer_id, sent.message_id)
-    await delete_source(message, business_connection_id)
+    try:
+        keyboard_update = await bot.edit_message_reply_markup(
+            business_connection_id=business_connection_id,
+            chat_id=buyer_id,
+            message_id=sent.message_id,
+            reply_markup=markup,
+        )
+        log.info(
+            "OFFER_KEYBOARD_ATTACHED offer_id=%s message_id=%s result_type=%s",
+            offer_id, sent.message_id, type(keyboard_update).__name__,
+        )
+    except Exception:
+        # Не прерываем отправку офера: ошибка видна в логах для диагностики.
+        log.exception("OFFER_KEYBOARD_ATTACH_ERROR offer_id=%s chat_id=%s message_id=%s", offer_id, buyer_id, sent.message_id)
+    await delete_task
 
 
 async def reply_message(message: Message, text: str, reply_markup=None):
