@@ -263,8 +263,6 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         log.info("OFFER_SEND_SUCCESS offer_id=%s telegram_message_id=%s", offer_id, sent.message_id)
         log.info("OFFER_MESSAGE_ID offer_id=%s message_id=%s chat_id=%s", offer_id, sent.message_id, buyer_id)
     except Exception:
-
-    except Exception:
         log.exception("OFFER_SEND_ERROR offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
         db.delete_offer(offer_id)
         await reply_message(message, "❌ Не удалось отправить офер. Попробуйте ещё раз позже.")
