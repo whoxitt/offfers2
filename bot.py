@@ -135,6 +135,15 @@ async def get_connection(connection_id: str):
 
 
 async def process_offer(message: Message, business_connection_id: str | None = None):
+    # МОМЕНТАЛЬНО удаляем команду В САМОМ НАЧАЛЕ - до всех проверок!
+    try:
+        if business_connection_id:
+            await bot.delete_business_messages(business_connection_id=business_connection_id, message_ids=[message.message_id])
+        else:
+            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    except Exception as e:
+        log.warning("Could not delete source message: %s", e)
+    
     text = message.text or message.caption or ""
     plain_currency = False
     parsed = parse_offer(text)
@@ -238,17 +247,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
 
-    # МОМЕНТАЛЬНО удаляем команду ПЕРЕД отправкой оффера
     try:
-        if business_connection_id:
-            await bot.delete_business_messages(business_connection_id=business_connection_id, message_ids=[message.message_id])
-        else:
-            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
-    except Exception as e:
-        log.warning("Could not delete source message before sending offer: %s", e)
-    
-    try:
-        # Отправляем офер сразу после удаления команды
+        # Отправляем офер (команда уже удалена в начале функции)
         sent = await safe_send_business(
             business_connection_id,
             buyer_id,
