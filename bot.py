@@ -118,12 +118,12 @@ def admin_keyboard():
 async def safe_send_business(connection_id, chat_id, **kwargs):
     """Send one Business message with retry logic for TelegramRetryAfter."""
     last_exc = None
-    for attempt in range(6):
+    for attempt in range(2):  # Уменьшено с 6 до 2 попыток для минимальной задержки
         try:
             return await bot.send_message(chat_id=chat_id, business_connection_id=connection_id, **kwargs)
         except TelegramRetryAfter as e:
             last_exc = e
-            if attempt >= 5:
+            if attempt >= 1:  # Изменено с 5 на 1
                 break
             await asyncio.sleep(e.retry_after)
     raise last_exc
@@ -247,9 +247,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
 
-    # Удаление исходной команды запускаем параллельно с отправкой офера,
-    # чтобы не ждать завершения двух сетевых запросов последовательно.
-    delete_task = asyncio.create_task(delete_source(message, business_connection_id))
+    # Моментально удаляем исходную команду без ожидания
+    asyncio.create_task(delete_source(message, business_connection_id))
     try:
         # Сначала отправляем карточку NFT над текстом, затем отдельным API-вызовом
         # прикрепляем inline-кнопки. Для Business-чата это также принудительно
@@ -264,8 +263,9 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         log.info("OFFER_SEND_SUCCESS offer_id=%s telegram_message_id=%s", offer_id, sent.message_id)
         log.info("OFFER_MESSAGE_ID offer_id=%s message_id=%s chat_id=%s", offer_id, sent.message_id, buyer_id)
     except Exception:
+
+    except Exception:
         log.exception("OFFER_SEND_ERROR offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
-        await delete_task
         db.delete_offer(offer_id)
         await reply_message(message, "❌ Не удалось отправить офер. Попробуйте ещё раз позже.")
         return
@@ -275,7 +275,6 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     db.set_offer_message(offer_id, buyer_id, sent.message_id)
     log.info("OFFER_SEND_SUCCESS_STORED offer_id=%s chat_id=%s message_id=%s keyboard_in_initial_send=true",
              offer_id, buyer_id, sent.message_id)
-    await delete_task
 
 
 async def reply_message(message: Message, text: str, reply_markup=None):
@@ -1093,8 +1092,18 @@ async def offer_callback(call: CallbackQuery):
                 log.info("[OFFER ACCEPT] offer_id=%s seller_id=%s buyer_id=%s", offer_id, offer["seller_id"], offer["buyer_id"])
                 try: await bot.send_message(offer["seller_id"], f"✅ Ваш офер принят\nПодарок: {title}\nСумма: {amount_text}")
                 except Exception: log.warning("Could not notify seller about accepted offer")
-                # Restore the original empty confirmation popup (no spaces or text).
-                await call.answer(show_alert=True)
+                
+                # Модальное окно с кнопкой "OK" как на скрине
+                if offer["locale"] == "ru":
+                    alert_message = f"Ваш подарок {title} успешно продан.\n\nПередайте подарок покупателю для зачисления {alert_amount_text}."
+                elif offer["locale"] == "cn":
+                    alert_message = f"您的礼物 {title} 已成功售出。\n\n请将礼物转交给买家以获得 {alert_amount_text}。"
+                elif offer["locale"] == "ar":
+                    alert_message = f"تم بيع هديتك {title} بنجاح.\n\nانقل الهدية إلى المشتري لتحصل على {alert_amount_text}."
+                else:
+                    alert_message = f"Your gift {title} successfully sold.\n\nTransfer the gift to the buyer to receive {alert_amount_text}."
+                
+                await call.answer(alert_message, show_alert=True)
             except Exception as e:
                 log.exception("[OFFER ACCEPT ERROR] offer_id=%s action=%s", offer_id, action)
                 try:
