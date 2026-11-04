@@ -9,8 +9,8 @@ ACCEPT_EMOJI_ID = "5776375003280838798"
 TRANSFER_EMOJI_ID = "5879770735999717115"
 GIFT_EMOJI_ID = "6032937473162614352"
 CONFIRM_EMOJI_ID = "5800595351589195950"  # Красный эмодзи для кнопки подтверждения
-PREMIUM_EMOJI_ID = "5825794181183836432"  # Премиум эмодзи для кнопки "Готово"
-DONE_EMOJI_ID = "5800595351589195950"  # Эмодзи для кнопки "Готово"
+PREMIUM_EMOJI_ID = "5825794181183836432"  # Legacy constant retained for compatibility; unused
+DONE_EMOJI_ID = "5800595351589195950"  # Legacy constant retained for compatibility; unused
 STARS_EMOJI_ID = "5321485469249198987"  # Премиум звёздочка для Stars
 GRAM_EMOJI_ID = "5255894863303450180"  # Эмодзи для Gram
 
@@ -27,15 +27,16 @@ def parse_offer(text: str):
     """Parse an offer and recognize the requested language anywhere in the command.
 
     Supported examples:
-      офер https://t.me/nft/PartySparkler-140864 150 грам китай
-      .офер араб https://t.me/nft/PartySparkler-140864 150 stars
-      offer https://t.me/nft/PartySparkler-140864 150 stars en
+      Оф https://t.me/nft/PartySparkler-140864 150 грам китай
+      .Оф араб https://t.me/nft/PartySparkler-140864 150 stars
     """
-    tokens =    text.strip().split()
+    tokens = text.strip().split()
+    if not tokens or tokens[0].strip().lower().lstrip(".") != "оф":
+        return {"error": "command", "locale": "ru"}
     locale = "ru"
     language_aliases = {
         "en": "en", "eng": "en", "англ": "en", "английский": "en", "английском": "en", "english": "en",
-        "cn": "cn", "zh": "cn", "chinese": "cn", "中文": "cn", "китай": "cn", "кит": "cn", "китайский": "cn", "китайском": "cn",
+        "cn": "cn", "zh": "cn", "chinese": "cn", "中文": "cn", "китай": "cn", "кидай": "cn", "кит": "cn", "китайский": "cn", "китайском": "cn",
         "ar": "ar", "arab": "ar", "arabic": "ar", "عربي": "ar", "العربية": "ar", "عرب": "ar", "араб": "ar", "арабский": "ar", "арабском": "ar",
         "ru": "ru", "рус": "ru", "русский": "ru", "русском": "ru",
     }
@@ -81,7 +82,7 @@ def display_amount(amount: float, currency: str, with_emoji: bool = False) -> st
             return f"{value}₽"
         return f'{value}<tg-emoji emoji-id="{STARS_EMOJI_ID}">⭐</tg-emoji>'
 
-    # Формат для .оффер: обычные слова Stars / Gram.
+    # Формат суммы: обычные слова Stars / Gram.
     if currency == "gram":
         return f"{value} Gram"
     elif currency == "rub":

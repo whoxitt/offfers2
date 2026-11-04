@@ -100,6 +100,16 @@ class Database:
                 for statement in statements:
                     cur.execute(statement)
 
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT value FROM offer_settings WHERE key=%s", (key,))
+            row = cur.fetchone()
+            return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("INSERT INTO offer_settings(key,value) VALUES(%s,%s) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value", (key, value))
+
     def register_user(self, user_id: int, username: Optional[str] = None,
                       first_name: Optional[str] = None, last_name: Optional[str] = None):
         with self.connect() as con, con.cursor() as cur:
@@ -265,7 +275,7 @@ class Database:
 
     def cleanup_expired_offers(self):
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("DELETE FROM gift_offers WHERE expires_at IS NOT NULL AND expires_at<=NOW() AND status='pending'")
+            cur.execute("UPDATE gift_offers SET status='expired' WHERE expires_at IS NOT NULL AND expires_at<=NOW() AND status='pending'")
             return cur.rowcount
 
     def daily_offer_stats(self):

