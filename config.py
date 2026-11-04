@@ -28,7 +28,6 @@ class Config:
     # Настройки оплаты
     payment_price: float = 150.0
     ton_wallet: str = ""
-    cryptobot_token: str = ""
 
 
 def load_config() -> Config:
@@ -74,5 +73,4 @@ def load_config() -> Config:
         bot_username=os.getenv("BOT_USERNAME", "").strip().lstrip("@"),
         payment_price=float(os.getenv("PAYMENT_PRICE", "150")),
         ton_wallet=os.getenv("TON_WALLET", "").strip(),
-        cryptobot_token=os.getenv("CRYPTOBOT_TOKEN", "").strip(),
     )

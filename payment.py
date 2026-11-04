@@ -1,62 +1,10 @@
-"""Модуль для обработки платежей через CryptoBot и Tonkeeper"""
+"""Проверка платежей TON через TonAPI."""
 import asyncio
 import aiohttp
 import logging
 from typing import Optional
 
 log = logging.getLogger("payment")
-
-
-class CryptoBotAPI:
-    """API для работы с CryptoBot"""
-    
-    def __init__(self, token: str):
-        self.token = token
-        self.base_url = "https://pay.crypt.bot/api"
-        
-    async def create_invoice(self, amount: float, currency: str = "GRAM", description: str = "Оплата доступа к OfferBot") -> Optional[dict]:
-        """Создать счёт для оплаты"""
-        url = f"{self.base_url}/createInvoice"
-        headers = {"Crypto-Pay-API-Token": self.token}
-        
-        payload = {
-            "asset": currency,
-            "amount": str(amount),
-            "description": description,
-        }
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("ok"):
-                            return data.get("result")
-                    log.error(f"CryptoBot API error: {resp.status} - {await resp.text()}")
-        except Exception as e:
-            log.exception(f"CryptoBot API exception: {e}")
-        return None
-    
-    async def check_invoice(self, invoice_id: int) -> Optional[dict]:
-        """Проверить статус счёта"""
-        url = f"{self.base_url}/getInvoices"
-        headers = {"Crypto-Pay-API-Token": self.token}
-        
-        payload = {"invoice_ids": str(invoice_id)}
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, params=payload, headers=headers) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        if data.get("ok"):
-                            items = data.get("result", {}).get("items", [])
-                            if items:
-                                return items[0]
-                    log.error(f"CryptoBot check error: {resp.status} - {await resp.text()}")
-        except Exception as e:
-            log.exception(f"CryptoBot check exception: {e}")
-        return None
 
 
 class TonkeeperAPI:
