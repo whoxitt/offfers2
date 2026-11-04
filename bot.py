@@ -259,6 +259,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
             buyer_id,
             text=body,
             link_preview_options=LinkPreviewOptions(url=parsed["gift_url"], show_above_text=True),
+            reply_markup=markup,
         )
         log.info("OFFER_SEND_SUCCESS offer_id=%s telegram_message_id=%s", offer_id, sent.message_id)
         log.info("OFFER_MESSAGE_ID offer_id=%s message_id=%s chat_id=%s", offer_id, sent.message_id, buyer_id)
@@ -269,23 +270,11 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         await reply_message(message, "❌ Не удалось отправить офер. Попробуйте ещё раз позже.")
         return
 
-    # Сохраняем ID до прикрепления клавиатуры, чтобы callback уже мог найти офер.
+    # Клавиатура отправлена в том же запросе, что и сам офер.
+    # Поэтому она является частью исходного сообщения, а не поздним edit-обновлением.
     db.set_offer_message(offer_id, buyer_id, sent.message_id)
-    log.info("OFFER_SEND_SUCCESS_STORED offer_id=%s chat_id=%s message_id=%s", offer_id, buyer_id, sent.message_id)
-    try:
-        keyboard_update = await bot.edit_message_reply_markup(
-            business_connection_id=business_connection_id,
-            chat_id=buyer_id,
-            message_id=sent.message_id,
-            reply_markup=markup,
-        )
-        log.info(
-            "OFFER_KEYBOARD_ATTACHED offer_id=%s message_id=%s result_type=%s",
-            offer_id, sent.message_id, type(keyboard_update).__name__,
-        )
-    except Exception:
-        # Не прерываем отправку офера: ошибка видна в логах для диагностики.
-        log.exception("OFFER_KEYBOARD_ATTACH_ERROR offer_id=%s chat_id=%s message_id=%s", offer_id, buyer_id, sent.message_id)
+    log.info("OFFER_SEND_SUCCESS_STORED offer_id=%s chat_id=%s message_id=%s keyboard_in_initial_send=true",
+             offer_id, buyer_id, sent.message_id)
     await delete_task
 
 
