@@ -1093,12 +1093,8 @@ async def offer_callback(call: CallbackQuery):
                 log.info("[OFFER ACCEPT] offer_id=%s seller_id=%s buyer_id=%s", offer_id, offer["seller_id"], offer["buyer_id"])
                 try: await bot.send_message(offer["seller_id"], f"✅ Ваш офер принят\nПодарок: {title}\nСумма: {amount_text}")
                 except Exception: log.warning("Could not notify seller about accepted offer")
-                # A normal ASCII space is treated as an empty callback alert by
-                # some Telegram clients. Use an invisible non-empty blank glyph
-                # so the confirmation popup (with its OK button) is displayed
-                # without adding visible wording.
-                alert_text = "\u2800"
-                await call.answer(alert_text, show_alert=True)
+                # Restore the original empty confirmation popup (no spaces or text).
+                await call.answer(show_alert=True)
             except Exception as e:
                 log.exception("[OFFER ACCEPT ERROR] offer_id=%s action=%s", offer_id, action)
                 try:
