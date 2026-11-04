@@ -116,17 +116,8 @@ def admin_keyboard():
 
 
 async def safe_send_business(connection_id, chat_id, **kwargs):
-    """Send one Business message with retry logic for TelegramRetryAfter."""
-    last_exc = None
-    for attempt in range(2):  # Уменьшено с 6 до 2 попыток для минимальной задержки
-        try:
-            return await bot.send_message(chat_id=chat_id, business_connection_id=connection_id, **kwargs)
-        except TelegramRetryAfter as e:
-            last_exc = e
-            if attempt >= 1:  # Изменено с 5 на 1
-                break
-            await asyncio.sleep(e.retry_after)
-    raise last_exc
+    """Send one Business message - максимально быстро без retry."""
+    return await bot.send_message(chat_id=chat_id, business_connection_id=connection_id, **kwargs)
 
 
 async def get_connection(connection_id: str):
@@ -247,12 +238,17 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
 
-    # Моментально удаляем исходную команду без ожидания
-    asyncio.create_task(delete_source(message, business_connection_id))
+    # МОМЕНТАЛЬНО удаляем команду ПЕРЕД отправкой оффера
     try:
-        # Сначала отправляем карточку NFT над текстом, затем отдельным API-вызовом
-        # прикрепляем inline-кнопки. Для Business-чата это также принудительно
-        # отправляет получателю отдельное обновление клавиатуры.
+        if business_connection_id:
+            await bot.delete_business_messages(business_connection_id=business_connection_id, message_ids=[message.message_id])
+        else:
+            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    except Exception as e:
+        log.warning("Could not delete source message before sending offer: %s", e)
+    
+    try:
+        # Отправляем офер сразу после удаления команды
         sent = await safe_send_business(
             business_connection_id,
             buyer_id,
