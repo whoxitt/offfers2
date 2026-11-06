@@ -37,6 +37,21 @@ def display_name(user) -> str:
     return " ".join(x for x in [getattr(user, 'first_name', None), getattr(user, 'last_name', None)] if x) or "Пользователь"
 
 
+async def send_with_banner(target, text: str, reply_markup=None, **kwargs):
+    """Отправить сообщение с баннером если он установлен, иначе просто текст"""
+    banner_file_id = db.get_setting("start_banner_file_id")
+    if banner_file_id:
+        if isinstance(target, Message):
+            await target.answer_photo(banner_file_id, caption=text, reply_markup=reply_markup, **kwargs)
+        else:  # CallbackQuery.message
+            await target.answer_photo(banner_file_id, caption=text, reply_markup=reply_markup, **kwargs)
+    else:
+        if isinstance(target, Message):
+            await target.answer(text, reply_markup=reply_markup, **kwargs)
+        else:  # CallbackQuery.message
+            await target.answer(text, reply_markup=reply_markup, **kwargs)
+
+
 def instruction(locale="ru"):
     return (
         "<b>ОСНОВНАЯ КОМАНДА НА РУССКОМ ЯЗЫКЕ:</b>\n"
@@ -330,11 +345,15 @@ async def on_start(message: Message):
     if message.text and "buy" in message.text.lower():
         # Проверяем есть ли уже доступ
         if db.has_access(user.id, cfg.owner_id, cfg.offer_access_mode):
-            await message.answer(
+            caption = (
                 "✅ <b>У вас уже есть доступ!</b>\n\n"
-                "Вы можете пользоваться всеми функциями бота.",
-                reply_markup=main_menu_keyboard(user.id)
+                "Вы можете пользоваться всеми функциями бота."
             )
+            banner_file_id = db.get_setting("start_banner_file_id")
+            if banner_file_id:
+                await message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(user.id))
+            else:
+                await message.answer(caption, reply_markup=main_menu_keyboard(user.id))
             return
         
         # Показываем варианты оплаты
@@ -382,11 +401,18 @@ async def check_subscription_callback(call: CallbackQuery):
         return
     u = call.from_user
     db.register_user(u.id, u.username, u.first_name, u.last_name)
-    text = "<b>Привет, друг! Ты попал в рай профитов.</b>\n\nВыбери, что тебе нужно:"
+    caption = "<blockquote>Привет, выбери действие</blockquote>"
+    banner_file_id = db.get_setting("start_banner_file_id")
     try:
-        await call.message.edit_text(text, reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
+        if banner_file_id:
+            await call.message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(u.id))
+        else:
+            await call.message.edit_text(caption, reply_markup=main_menu_keyboard(u.id))
     except Exception:
-        await call.message.answer(text, reply_markup=main_menu_keyboard(call.from_user.id if call.from_user else None))
+        if banner_file_id:
+            await call.message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(u.id))
+        else:
+            await call.message.answer(caption, reply_markup=main_menu_keyboard(u.id))
     await call.answer("Подписка подтверждена!")
 
 
@@ -601,15 +627,39 @@ async def pay_check_callback(call: CallbackQuery):
         # Подтверждаем оплату и выдаём доступ
         db.confirm_payment_and_grant_access(payment_id, call.from_user.id)
         
-        await call.message.answer(
+        caption = (
             "✅ <b>ПЛАТЁЖ ПОДТВЕРЖДЁН!</b>\n\n"
             "Доступ к OfferBot активирован!\n"
-            "Удачного ворка! Смотри инструкцию 📘",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
-                [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
-            ])
+            "Удачного ворка! Смотри инструкцию 📘"
         )
+        banner_file_id = db.get_setting("start_banner_file_id")
+        
+        try:
+            if banner_file_id:
+                await call.message.answer_photo(
+                    banner_file_id,
+                    caption=caption,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
+                        [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
+                    ])
+                )
+            else:
+                await call.message.answer(
+                    caption,
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
+                        [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
+                    ])
+                )
+        except Exception:
+            await call.message.answer(
+                caption,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
+                    [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
+                ])
+            )
         
         # Уведомляем админа
         try:
@@ -637,16 +687,19 @@ async def back_to_start_callback(call: CallbackQuery):
         await call.answer("Ошибка", show_alert=True)
         return
     
+    caption = "<blockquote>Привет, выбери действие</blockquote>"
+    banner_file_id = db.get_setting("start_banner_file_id")
+    
     try:
-        await call.message.answer(
-            "<blockquote>Привет, выбери действие</blockquote>",
-            reply_markup=main_menu_keyboard(call.from_user.id),
-        )
+        if banner_file_id:
+            await call.message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(call.from_user.id))
+        else:
+            await call.message.answer(caption, reply_markup=main_menu_keyboard(call.from_user.id))
     except Exception:
-        await call.message.answer(
-            "<blockquote>Привет, выбери действие</blockquote>",
-            reply_markup=main_menu_keyboard(call.from_user.id),
-        )
+        if banner_file_id:
+            await call.message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(call.from_user.id))
+        else:
+            await call.message.answer(caption, reply_markup=main_menu_keyboard(call.from_user.id))
     await call.answer()
 
 
@@ -781,9 +834,6 @@ async def on_message(message: Message):
 async def handle_text(message: Message, is_business: bool):
     text = (message.text or "").strip()
     low = text.lower()
-    if low == ".привет" or low == "привет":
-        await reply_message(message, "Привет")
-        return
     if low == ".дебаг" or low == "debug":
         if message.from_user:
             u = message.from_user
