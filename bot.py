@@ -900,6 +900,11 @@ async def handle_text(message: Message, is_business: bool):
             await reply_message(message, "❌ Эта команда предназначена для Business-чата.")
         return
     
+    # Тестовая команда "Привет"
+    if low == "офпривет":
+        await test_send(message, is_business, "Привет")
+        return
+    
     # Тестовые команды для поиска PEER_FLOOD
     if low == "оф1":
         await test_send(message, is_business, "Пoльзoвaтeль")
