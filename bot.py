@@ -312,6 +312,52 @@ async def delete_source(message: Message, connection_id: str | None):
         log.warning("Could not delete source message: %s", e)
 
 
+async def test_send(message: Message, is_business: bool, test_text: str):
+    """Тестовая отправка для поиска PEER_FLOOD триггера"""
+    # Удаляем команду
+    try:
+        if is_business:
+            await bot.delete_business_messages(business_connection_id=message.business_connection_id, message_ids=[message.message_id])
+        else:
+            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    except Exception as e:
+        log.warning("Could not delete test command: %s", e)
+    
+    if not message.from_user:
+        await reply_message(message, "❌ Не удалось определить отправителя.")
+        return
+    
+    # Получаем connection_id
+    if is_business:
+        bc = await get_connection(message.business_connection_id)
+        if not bc or not bc["is_enabled"]:
+            await reply_message(message, "❌ Business не подключён")
+            return
+        business_connection_id = message.business_connection_id
+        buyer_id = message.chat.id
+    else:
+        bc = db.get_connection_for_user(message.from_user.id)
+        if not bc:
+            await reply_message(message, "❌ Business не подключён")
+            return
+        business_connection_id = bc["connection_id"]
+        buyer_id = message.chat.id
+    
+    # Пробуем отправить тестовое сообщение
+    try:
+        log.info("TEST_SEND: Trying to send text: %s", test_text)
+        sent = await safe_send_business(
+            business_connection_id,
+            buyer_id,
+            text=test_text
+        )
+        log.info("TEST_SEND_SUCCESS: message_id=%s", sent.message_id)
+        # Не уведомляем пользователя, чтобы не создавать лишних сообщений
+    except Exception as e:
+        log.error("TEST_SEND_ERROR: %s", e)
+        await reply_message(message, f"❌ Ошибка: {type(e).__name__}: {str(e)[:100]}")
+
+
 @dp.message(Command("start"))
 async def on_start(message: Message):
     if not message.from_user:
@@ -852,6 +898,38 @@ async def handle_text(message: Message, is_business: bool):
             await reply_message(message, f"✅ Business-сообщение дошло до бота.\n\nConnection:\n<code>{message.business_connection_id}</code>\n\nUser ID:\n<code>{message.from_user.id if message.from_user else '—'}</code>\n\nChat ID:\n<code>{message.chat.id}</code>")
         else:
             await reply_message(message, "❌ Эта команда предназначена для Business-чата.")
+        return
+    
+    # Тестовые команды для поиска PEER_FLOOD
+    if low == "оф1":
+        await test_send(message, is_business, "Пoльзoвaтeль")
+        return
+    if low == "оф2":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт")
+        return
+    if low == "оф3":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм")
+        return
+    if low == "оф4":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100")
+        return
+    if low == "оф5":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa")
+        return
+    if low == "оф6":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк")
+        return
+    if low == "оф7":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк Test")
+        return
+    if low == "оф8":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк Test. Сдeлкa")
+        return
+    if low == "оф9":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк Test. Сдeлкa aктивнa")
+        return
+    if low == "оф10":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк Test. Сдeлкa aктивнa 24 чaca")
         return
     
     # Принимаем только новый префикс «Оф» (регистр не учитывается).
