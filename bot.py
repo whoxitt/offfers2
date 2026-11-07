@@ -38,18 +38,24 @@ def display_name(user) -> str:
 
 
 async def send_with_banner(target, text: str, reply_markup=None, **kwargs):
-    """Отправить сообщение с баннером если он установлен, иначе просто текст"""
+    """Отправить баннер; если сохранённый file_id недействителен — сбросить его и отправить текст."""
     banner_file_id = db.get_setting("start_banner_file_id")
     if banner_file_id:
-        if isinstance(target, Message):
-            await target.answer_photo(banner_file_id, caption=text, reply_markup=reply_markup, **kwargs)
-        else:  # CallbackQuery.message
-            await target.answer_photo(banner_file_id, caption=text, reply_markup=reply_markup, **kwargs)
-    else:
-        if isinstance(target, Message):
-            await target.answer(text, reply_markup=reply_markup, **kwargs)
-        else:  # CallbackQuery.message
-            await target.answer(text, reply_markup=reply_markup, **kwargs)
+        try:
+            return await target.answer_photo(
+                photo=banner_file_id,
+                caption=text,
+                reply_markup=reply_markup,
+                **kwargs,
+            )
+        except TelegramBadRequest as exc:
+            error_text = str(exc).lower()
+            if "wrong file identifier" not in error_text and "http url" not in error_text:
+                raise
+            log.warning("Saved start banner file_id is invalid; clearing it. Telegram error: %s", exc)
+            db.set_setting("start_banner_file_id", "")
+
+    return await target.answer(text, reply_markup=reply_markup, **kwargs)
 
 
 def instruction(locale="ru"):
@@ -395,11 +401,7 @@ async def on_start(message: Message):
                 "✅ <b>У вас уже есть доступ!</b>\n\n"
                 "Вы можете пользоваться всеми функциями бота."
             )
-            banner_file_id = db.get_setting("start_banner_file_id")
-            if banner_file_id:
-                await message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(user.id))
-            else:
-                await message.answer(caption, reply_markup=main_menu_keyboard(user.id))
+            await send_with_banner(message, caption, reply_markup=main_menu_keyboard(user.id))
             return
         
         # Показываем варианты оплаты
@@ -413,12 +415,8 @@ async def on_start(message: Message):
         await show_payment_options(message, user.id, pending)
         return
     
-    banner_file_id = db.get_setting("start_banner_file_id")
     caption = "<blockquote>Привет, выбери действие</blockquote>"
-    if banner_file_id:
-        await message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(user.id))
-    else:
-        await message.answer(caption, reply_markup=main_menu_keyboard(user.id))
+    await send_with_banner(message, caption, reply_markup=main_menu_keyboard(user.id))
 
 
 async def is_channel_subscriber(user_id: int) -> bool:
@@ -448,17 +446,11 @@ async def check_subscription_callback(call: CallbackQuery):
     u = call.from_user
     db.register_user(u.id, u.username, u.first_name, u.last_name)
     caption = "<blockquote>Привет, выбери действие</blockquote>"
-    banner_file_id = db.get_setting("start_banner_file_id")
     try:
-        if banner_file_id:
-            await call.message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(u.id))
-        else:
-            await call.message.edit_text(caption, reply_markup=main_menu_keyboard(u.id))
+        await send_with_banner(call.message, caption, reply_markup=main_menu_keyboard(u.id))
     except Exception:
-        if banner_file_id:
-            await call.message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(u.id))
-        else:
-            await call.message.answer(caption, reply_markup=main_menu_keyboard(u.id))
+        log.exception("Failed to show start menu after subscription confirmation")
+        await call.message.answer(caption, reply_markup=main_menu_keyboard(u.id))
     await call.answer("Подписка подтверждена!")
 
 
@@ -678,35 +670,12 @@ async def pay_check_callback(call: CallbackQuery):
             "Доступ к OfferBot активирован!\n"
             "Удачного ворка! Смотри инструкцию 📘"
         )
-        banner_file_id = db.get_setting("start_banner_file_id")
-        
-        try:
-            if banner_file_id:
-                await call.message.answer_photo(
-                    banner_file_id,
-                    caption=caption,
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
-                        [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
-                    ])
-                )
-            else:
-                await call.message.answer(
-                    caption,
-                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
-                        [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
-                    ])
-                )
-        except Exception:
-            await call.message.answer(
-                caption,
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
-                    [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
-                ])
-            )
-        
+        success_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
+            [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
+        ])
+        await send_with_banner(call.message, caption, reply_markup=success_keyboard)
+
         # Уведомляем админа
         try:
             await bot.send_message(
@@ -734,18 +703,7 @@ async def back_to_start_callback(call: CallbackQuery):
         return
     
     caption = "<blockquote>Привет, выбери действие</blockquote>"
-    banner_file_id = db.get_setting("start_banner_file_id")
-    
-    try:
-        if banner_file_id:
-            await call.message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(call.from_user.id))
-        else:
-            await call.message.answer(caption, reply_markup=main_menu_keyboard(call.from_user.id))
-    except Exception:
-        if banner_file_id:
-            await call.message.answer_photo(banner_file_id, caption=caption, reply_markup=main_menu_keyboard(call.from_user.id))
-        else:
-            await call.message.answer(caption, reply_markup=main_menu_keyboard(call.from_user.id))
+    await send_with_banner(call.message, caption, reply_markup=main_menu_keyboard(call.from_user.id))
     await call.answer()
 
 
