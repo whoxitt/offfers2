@@ -31,6 +31,7 @@ awaiting_broadcast = set()
 awaiting_support = set()
 awaiting_banner = set()
 awaiting_profile_change = {}  # {admin_user_id: target_user_id}
+awaiting_access_recovery = set()  # users currently entering a previously authorized username
 
 
 def display_name(user) -> str:
@@ -109,6 +110,7 @@ def subscription_keyboard():
 def main_menu_keyboard(user_id: int | None = None):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Купить", callback_data="buy_access")],
+        [InlineKeyboardButton(text="🔑 Активировать доступ", callback_data="activate_access")],
         [InlineKeyboardButton(text="Инструкция", callback_data="show_instruction")],
         [InlineKeyboardButton(text="Я чайник", callback_data="support_start")],
     ])
@@ -452,6 +454,26 @@ async def check_subscription_callback(call: CallbackQuery):
         log.exception("Failed to show start menu after subscription confirmation")
         await call.message.answer(caption, reply_markup=main_menu_keyboard(u.id))
     await call.answer("Подписка подтверждена!")
+
+
+@dp.callback_query(F.data == "activate_access")
+async def activate_access_callback(call: CallbackQuery):
+    if not call.from_user:
+        await call.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    user = call.from_user
+    db.register_user(user.id, user.username, user.first_name, user.last_name)
+    if db.has_access(user.id, cfg.owner_id, cfg.offer_access_mode):
+        await call.answer("У вас уже есть доступ.", show_alert=True)
+        return
+    awaiting_access_recovery.add(user.id)
+    await call.message.answer(
+        "🔑 <b>Активация доступа</b>\\n\\n"
+        "Скинь любой юзернейм своего аккаунта, где у тебя был доступ к оферам.\\n"
+        "Например: <code>@username</code>\\n\\n"
+        "Для отмены отправь /cancel."
+    )
+    await call.answer()
 
 
 @dp.callback_query(F.data == "my_profile")
@@ -817,6 +839,48 @@ async def on_message(message: Message):
     if message.from_user and message.chat.type == "private":
         u = message.from_user
         db.register_user(u.id, u.username, u.first_name, u.last_name)
+        if u.id in awaiting_access_recovery:
+            entered = (message.text or "").strip()
+            if entered.lower() == "/cancel":
+                awaiting_access_recovery.discard(u.id)
+                await message.answer("Активация доступа отменена.")
+                return
+            # Accept only a Telegram username, optionally prefixed with @.
+            username = entered.lstrip("@")
+            if not username or not username.replace("_", "").isalnum() or len(username) < 5 or len(username) > 32:
+                await message.answer("❌ Отправь корректный username, например <code>@username</code>. Для отмены: /cancel")
+                return
+            try:
+                previous_account = db.find_access_user_by_username(username)
+                if not previous_account:
+                    awaiting_access_recovery.discard(u.id)
+                    await message.answer(
+                        "❌ Не удалось подтвердить доступ.\\n"
+                        "Такого username нет в базе с активированным доступом. Доступ не выдан."
+                    )
+                    return
+                if db.is_blocked(u.id):
+                    awaiting_access_recovery.discard(u.id)
+                    await message.answer("⛔ Для этого аккаунта доступ заблокирован. Обратись в поддержку.")
+                    return
+                db.add_access(u.id)
+                connection = db.get_connection_for_user(u.id)
+                if connection:
+                    db.set_connection_blocked(connection["connection_id"], False)
+                awaiting_access_recovery.discard(u.id)
+                await message.answer(
+                    "✅ <b>Доступ успешно активирован!</b>\\n\\n"
+                    "Проверка по базе данных пройдена. Можешь пользоваться оферами.",
+                    reply_markup=main_menu_keyboard(u.id)
+                )
+                log.info(
+                    "ACCESS_RECOVERED current_user_id=%s verified_user_id=%s verified_username=%s",
+                    u.id, previous_account["user_id"], username
+                )
+            except Exception:
+                log.exception("Access recovery failed for user_id=%s", u.id)
+                await message.answer("❌ Не удалось проверить доступ из-за ошибки базы. Попробуй позже.")
+            return
         if u.id in awaiting_support:
             if (message.text or "").strip().lower() == "/cancel":
                 awaiting_support.discard(u.id)

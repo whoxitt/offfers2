@@ -227,6 +227,23 @@ class Database:
             cur.execute("SELECT user_id,username,first_name,last_name FROM bot_users WHERE LOWER(username)=%s ORDER BY updated_at DESC LIMIT 1", (username,))
             return cur.fetchone()
 
+    def find_access_user_by_username(self, username: str):
+        """Find a previously registered account only if its user_id has paid offer access."""
+        username = username.strip().lstrip("@").lower()
+        if not username:
+            return None
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute(
+                """SELECT u.user_id, u.username, u.first_name, u.last_name
+                   FROM bot_users u
+                   INNER JOIN offer_access_users a ON a.user_id = u.user_id
+                   WHERE LOWER(u.username) = %s
+                   ORDER BY u.updated_at DESC
+                   LIMIT 1""",
+                (username,)
+            )
+            return cur.fetchone()
+
     def user_profile_stats(self, user_id: int):
         """Fetch profile, active connection count and transfer profile in one DB round trip."""
         with self.connect() as con, con.cursor() as cur:
