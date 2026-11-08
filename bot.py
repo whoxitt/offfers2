@@ -468,10 +468,10 @@ async def activate_access_callback(call: CallbackQuery):
         return
     awaiting_access_recovery.add(user.id)
     await call.message.answer(
-        "🔑 <b>Активация доступа</b>\\n\\n"
-        "Скинь любой юзернейм своего аккаунта, где у тебя был доступ к оферам.\\n"
-        "Например: <code>@username</code>\\n\\n"
-        "Для отмены отправь /cancel."
+        "🔑 <b>Восстановление доступа</b>\n\n"
+        "Отправь username аккаунта, на котором раньше был доступ к оферам.\n"
+        "Например: <code>@username</code>\n\n"
+        "Чтобы отменить, отправь /cancel."
     )
     await call.answer()
 
@@ -855,8 +855,9 @@ async def on_message(message: Message):
                 if not previous_account:
                     awaiting_access_recovery.discard(u.id)
                     await message.answer(
-                        "❌ Не удалось подтвердить доступ.\\n"
-                        "Такого username нет в базе с активированным доступом. Доступ не выдан."
+                        "❌ Не удалось восстановить доступ.\n"
+                        "Аккаунт с таким username не найден среди пользователей, которым ранее выдавался доступ.\n"
+                        "Проверь username и попробуй ещё раз."
                     )
                     return
                 if db.is_blocked(u.id):
@@ -869,8 +870,8 @@ async def on_message(message: Message):
                     db.set_connection_blocked(connection["connection_id"], False)
                 awaiting_access_recovery.discard(u.id)
                 await message.answer(
-                    "✅ <b>Доступ успешно активирован!</b>\\n\\n"
-                    "Проверка по базе данных пройдена. Можешь пользоваться оферами.",
+                    "✅ <b>Доступ восстановлен!</b>\n\n"
+                    "Этот аккаунт теперь может пользоваться оферами.",
                     reply_markup=main_menu_keyboard(u.id)
                 )
                 log.info(
