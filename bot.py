@@ -1013,9 +1013,62 @@ async def handle_text(message: Message, is_business: bool):
         await test_send(message, is_business, "Прeдлoжeниe дeйствуeт в тeчeнии")
         return
     
+    # Постепенное добавление слов для поиска проблемы
+    if low == "офтест1":
+        await test_send(message, is_business, "Пользователь предлагает Вам")
+        return
+    if low == "офтест2":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм")
+        return
+    if low == "офтест3":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100")
+        return
+    if low == "офтест4":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 за")
+        return
+    if low == "офтест5":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa")
+        return
+    if low == "офтест6":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa подарок")
+        return
+    if low == "офтест7":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк")
+        return
+    if low == "офтест8":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test")
+        return
+    if low == "офтест9":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift")
+        return
+    if low == "офтест10":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.")
+        return
+    if low == "офтест11":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\n")
+        return
+    if low == "офтест12":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe")
+        return
+    if low == "офтест13":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт")
+        return
+    if low == "офтест14":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в")
+        return
+    if low == "офтест15":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в тeчeнии")
+        return
+    if low == "офтест16":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в тeчeнии 24ч")
+        return
+    if low == "офтест17":
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в тeчeнии 24ч…")
+        return
+    
     # Тест полного текста с новым "Предложение действует в течении"
     if low == "офполный":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в тeчeнии 24ч...")
+        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в тeчeнии 24ч…")
         return
     
     # Тест текста после принятия оффера
