@@ -265,8 +265,9 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
-        # Используем латинские буквы вместо некоторых русских: p, e, a вместо р, е, а
-        body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nСдeлкa aктивнa <b>{remaining}</b>."
+        # Используем латинские буквы в слове "предлагает": e, a вместо е, а
+        # "прeдлaгaeт" = п(р)e(д)л(а)г(a)(е)т где e, a, e - английские буквы
+        body = f"Пользователь <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nСдeлкa aктивнa <b>{remaining}</b>."
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
@@ -934,9 +935,19 @@ async def handle_text(message: Message, is_business: bool):
         await test_send(message, is_business, "Пoльзoвaтeль готов отдать")
         return
     
-    # Тест со смешанными латинскими буквами (p, e, a вместо р, е, а)
+    # Тест со смешанными латинскими буквами в слове "предлагает"
     if low == "офлат":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт")
+        await test_send(message, is_business, "Пользователь прeдлaгaeт")
+        return
+    
+    # Тест только слово "Пользователь" (полностью русское)
+    if low == "офюзер":
+        await test_send(message, is_business, "Пользователь")
+        return
+    
+    # Тест только слово "предлагает" с латинскими буквами
+    if low == "офпред":
+        await test_send(message, is_business, "прeдлaгaeт")
         return
     
     # Дополнительные тесты для поиска проблемного слова
