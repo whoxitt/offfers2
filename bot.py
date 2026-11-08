@@ -265,6 +265,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
+        # Используем латинские буквы вместо некоторых русских: p, e, a вместо р, е, а
         body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nСдeлкa aктивнa <b>{remaining}</b>."
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
@@ -926,6 +927,32 @@ async def handle_text(message: Message, is_business: bool):
     # Тестовая команда "Привет"
     if low == "офпривет":
         await test_send(message, is_business, "Привет")
+        return
+    
+    # Новая тестовая команда с исправленным текстом
+    if low == "офнов":
+        await test_send(message, is_business, "Пoльзoвaтeль готов отдать")
+        return
+    
+    # Тест со смешанными латинскими буквами (p, e, a вместо р, е, а)
+    if low == "офлат":
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт")
+        return
+    
+    # Дополнительные тесты для поиска проблемного слова
+    if low == "офтест1":
+        await test_send(message, is_business, "Пoльзoвaтeль NAME")
+        return
+    if low == "офтест2":
+        await test_send(message, is_business, "Пoльзoвaтeль NAME прeдлaгaeт")
+        return
+    if low == "офтест3":
+        seller_name = message.from_user.first_name if message.from_user else "Тест"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name}")
+        return
+    if low == "офтест4":
+        seller_name = message.from_user.first_name if message.from_user else "Тест"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт")
         return
     
     # Тестовые команды для поиска PEER_FLOOD
