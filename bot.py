@@ -265,10 +265,10 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
-        # Используем латинские буквы в словах "предлагает" и "Предложение действует в течении": e, a, o вместо е, а, о
+        # Используем латинские буквы в словах "предлагает" и "Предложение активно": e, a, o вместо е, а, о
         # "прeдлaгaeт" = п(р)e(д)л(а)г(a)(е)т где e, a, e - английские буквы
-        # "Прeдлoжeниe дeйствуeт в тeчeнии" = Пр(е)дл(о)ж(е)ни(е) д(е)йству(е)т в т(е)ч(е)нии где e, o - английские
-        body = f"Пользователь <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe дeйствуeт в тeчeнии <b>{remaining}</b>."
+        # "Прeдлoжeниe aктивнo" = Пр(е)дл(о)ж(е)ни(е) (а)ктивн(о) где e, o, a - английские
+        body = f"Пользователь <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))

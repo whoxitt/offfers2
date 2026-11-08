@@ -98,13 +98,13 @@ def format_remaining(seconds: float, locale: str = "ru") -> str:
     total = max(0, int(seconds))
     hours = total // 3600
     if locale == "cn":
-        return f"{hours}小时."
+        return f"{hours}小时"
     elif locale == "ar":
-        return f"{hours} ساعة."
+        return f"{hours} ساعة"
     elif locale == "en":
-        return f"{hours}h."
+        return f"{hours}h"
     else:
-        return f"{hours}ч."
+        return f"{hours}ч"
 
 
 def make_expiry(now=None, hours=6):
