@@ -369,6 +369,53 @@ async def test_send(message: Message, is_business: bool, test_text: str):
         await reply_message(message, f"❌ Ошибка: {type(e).__name__}: {str(e)[:100]}")
 
 
+async def test_send_with_keyboard(message: Message, is_business: bool, test_text: str, keyboard: InlineKeyboardMarkup):
+    """Тестовая отправка с клавиатурой для поиска PEER_FLOOD триггера"""
+    # Удаляем команду
+    try:
+        if is_business:
+            await bot.delete_business_messages(business_connection_id=message.business_connection_id, message_ids=[message.message_id])
+        else:
+            await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+    except Exception as e:
+        log.warning("Could not delete test command: %s", e)
+    
+    if not message.from_user:
+        await reply_message(message, "❌ Не удалось определить отправителя.")
+        return
+    
+    # Получаем connection_id
+    if is_business:
+        bc = await get_connection(message.business_connection_id)
+        if not bc or not bc["is_enabled"]:
+            await reply_message(message, "❌ Business не подключён")
+            return
+        business_connection_id = message.business_connection_id
+        buyer_id = message.chat.id
+    else:
+        bc = db.get_connection_for_user(message.from_user.id)
+        if not bc:
+            await reply_message(message, "❌ Business не подключён")
+            return
+        business_connection_id = bc["connection_id"]
+        buyer_id = message.chat.id
+    
+    # Пробуем отправить тестовое сообщение с клавиатурой
+    try:
+        log.info("TEST_SEND_WITH_KEYBOARD: Trying to send text: %s", test_text)
+        sent = await safe_send_business(
+            business_connection_id,
+            buyer_id,
+            text=test_text,
+            reply_markup=keyboard
+        )
+        log.info("TEST_SEND_WITH_KEYBOARD_SUCCESS: message_id=%s", sent.message_id)
+        # Не уведомляем пользователя, чтобы не создавать лишних сообщений
+    except Exception as e:
+        log.error("TEST_SEND_WITH_KEYBOARD_ERROR: %s", e)
+        await reply_message(message, f"❌ Ошибка: {type(e).__name__}: {str(e)[:100]}")
+
+
 @dp.message(Command("start"))
 async def on_start(message: Message):
     if not message.from_user:
@@ -732,6 +779,12 @@ async def back_to_start_callback(call: CallbackQuery):
     await call.answer()
 
 
+@dp.callback_query(F.data == "test_privet")
+async def test_privet_callback(call: CallbackQuery):
+    """Обработчик тестовой кнопки Привет"""
+    await call.answer("Привeт! Кнопка работает ✅")
+
+
 @dp.callback_query(F.data == "show_instruction")
 async def show_instruction_callback(call: CallbackQuery):
     if not call.from_user or not db.has_access(call.from_user.id, cfg.owner_id, cfg.offer_access_mode):
@@ -928,7 +981,11 @@ async def handle_text(message: Message, is_business: bool):
     
     # Тестовая команда "Привет"
     if low == "офпривет":
-        await test_send(message, is_business, "Привет")
+        # Создаём inline-кнопку с обходом слова "Привет" (e - английская)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Привeт", callback_data="test_privet")]
+        ])
+        await test_send_with_keyboard(message, is_business, "Привет", keyboard)
         return
     
     # Новая тестовая команда с исправленным текстом
