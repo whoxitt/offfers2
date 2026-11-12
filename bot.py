@@ -265,9 +265,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
-        # Используем латинские буквы ВО ВСЕХ словах для обхода PEER_FLOOD
-        # Заменяем: e вместо е, a вместо а, o вместо о, c вместо с
-        # "Пoльзoвaтeль" "прeдлaгaeт" "Вaм" "зa" "пoдaрoк" "Прeдлoжeниe" "aктивнo"
+        # Разделяем "Пользователь" и "предлагает" именем - комбинация рядом вызывает PEER_FLOOD
         body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
@@ -1092,41 +1090,40 @@ async def handle_text(message: Message, is_business: bool):
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт")
         return
     
-    # Тестовые команды для поиска PEER_FLOOD
-    # оф1 = только слово "Пользователь" как в оригинальном офере
+    # Тестовые команды - КАЖДОЕ СЛОВО ОТДЕЛЬНО для поиска PEER_FLOOD
     if low == "оф1":
         await test_send(message, is_business, "Пoльзoвaтeль")
         return
-    # оф2 = только слово "предлагает" как в оригинальном офере
     if low == "оф2":
         await test_send(message, is_business, "прeдлaгaeт")
         return
     if low == "оф3":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт")
+        await test_send(message, is_business, "Вaм")
         return
     if low == "оф4":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм")
+        await test_send(message, is_business, "зa")
         return
     if low == "оф5":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100")
+        await test_send(message, is_business, "пoдaрoк")
         return
     if low == "оф6":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa")
+        await test_send(message, is_business, "Прeдлoжeниe")
         return
     if low == "оф7":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк")
+        await test_send(message, is_business, "aктивнo")
         return
-    if low == "оф8":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк Test")
-        return
-    if low == "оф9":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe")
-        return
+    # Теперь комбинации слов
     if low == "оф10":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo")
+        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт")
         return
     if low == "оф11":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт")
+        return
+    if low == "оф12":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм")
+        return
+    if low == "оф13":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
         return
     
     # Принимаем только новый префикс «Оф» (регистр не учитывается).
