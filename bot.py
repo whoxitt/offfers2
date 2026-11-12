@@ -1172,18 +1172,17 @@ async def handle_text(message: Message, is_business: bool):
         await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм <b>100</b> зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
         return
     
-    # Тест: разбиваем "Пользователь" и "предлагает" БОЛЬШИМ количеством слов
-    if low == "офтест30":
-        await test_send(message, is_business, "Пoльзoвaтeль с ником TestName сейчас прeдлaгaeт")
+    # Тест: используем ДРУГИЕ кириллические символы из Unicode (выглядят одинаково)
+    # Используем украинские/белорусские варианты букв которые выглядят как русские
+    if low == "офтест50":
+        await test_send(message, is_business, "Пользователь TestName предлагает")  # Полностью русские
         return
-    if low == "офтест31":
-        await test_send(message, is_business, "Пoльзoвaтeль под именем TestName прeдлaгaeт")
+    if low == "офтест51":
+        await test_send(message, is_business, "Пoльзователь TestName прeдлагает")  # Смешанные
         return
-    if low == "офтест32":
-        await test_send(message, is_business, "Пoльзoвaтeль (TestName) прeдлaгaeт")
-        return
-    if low == "офтест33":
-        await test_send(message, is_business, "Пoльзoвaтeль - TestName - прeдлaгaeт")
+    if low == "офтест52":
+        # Используем ДВОЙНОЙ перенос строки между словами (невидимый разрыв)
+        await test_send(message, is_business, "Пoльзoвaтeль TestName\n\nпрeдлaгaeт Вaм")
         return
     
     # Тестовые команды - КАЖДОЕ СЛОВО ОТДЕЛЬНО для поиска PEER_FLOOD
