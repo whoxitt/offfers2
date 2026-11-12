@@ -292,10 +292,12 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     else:
         # Убрали "Пользователь", начинаем с ника
         # Меняем формат времени на "в течении Xч Xмин"
+        # Обходим через латинские буквы: П→P, р→p, е→e, д→d, л→l, о→o, ж→ж, н→n, и→u, а→a, к→k, т→t, в→v, ч→ч, м→m
         hours = int((expires - now).total_seconds()) // 3600
         minutes = (int((expires - now).total_seconds()) % 3600) // 60
         time_text = f"{hours}ч {minutes}мин"
-        body = f"<b>{seller_name}</b> пр&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПр&#1077;длож&#1077;ни&#1077; aктивнo в т&#1077;ч&#1077;нии <b>{time_text}</b>."
+        # Пpeдлoжeниe aктивнo в тeчeнии = латинские e, o, a, v, u
+        body = f"<b>{seller_name}</b> пp&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдapoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>."
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
