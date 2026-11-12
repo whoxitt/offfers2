@@ -264,18 +264,19 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     
     if test_level > 0:
         # Короткие тестовые команды: оф1, оф2, оф3...
+        # Используем латинские буквы вместо кириллицы: е→e, а→a, о→o, т→t
         if test_level == 1:
             body = f"<b>{seller_name}</b>"
         elif test_level == 2:
-            body = f"<b>{seller_name}</b> прeдлaгaeт"
+            body = f"<b>{seller_name}</b> прeдлaгaeт"  # е→e, а→a
         elif test_level == 3:
-            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм"
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм"  # е→e, а→a
         elif test_level == 4:
             body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b>"
         elif test_level == 5:
-            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa"
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa"  # а→a
         elif test_level == 6:
-            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк"
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк"  # о→o, а→a
         elif test_level == 7:
             body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>"
         else:
