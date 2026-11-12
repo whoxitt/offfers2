@@ -29,7 +29,22 @@ def parse_offer(text: str):
     Supported examples:
       Оф https://t.me/nft/PartySparkler-140864 150 грам китай
       .Оф араб https://t.me/nft/PartySparkler-140864 150 stars
+      .оф1, .оф2, .оф3 ... - короткие тестовые команды
     """
+    # Проверка на короткие команды: .оф1, .оф2, .оф3...
+    test_match = re.match(r'^\.?оф(\d+)$', text.strip(), re.I)
+    if test_match:
+        level = int(test_match.group(1))
+        return {
+            "gift_name": "DeliciousCake",
+            "gift_number": 1,
+            "gift_url": "https://t.me/nft/DeliciousCake-1",
+            "amount": 100,
+            "currency": "gram",
+            "locale": "ru",
+            "test_level": level
+        }
+    
     tokens = text.strip().split()
     if not tokens or tokens[0].strip().lower().lstrip(".") != "оф":
         return {"error": "command", "locale": "ru"}

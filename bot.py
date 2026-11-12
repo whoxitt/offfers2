@@ -258,7 +258,29 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     else:
         amount = display_amount(parsed["amount"], parsed["currency"], with_emoji=True)
     remaining = format_remaining((expires - now).total_seconds(), parsed["locale"])
-    if parsed["locale"] == "en":
+    
+    # Определяем уровень команды для коротких тестов
+    test_level = parsed.get("test_level", 0)
+    
+    if test_level > 0:
+        # Короткие тестовые команды: оф1, оф2, оф3...
+        if test_level == 1:
+            body = f"<b>{seller_name}</b>"
+        elif test_level == 2:
+            body = f"<b>{seller_name}</b> прeдлaгaeт"
+        elif test_level == 3:
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм"
+        elif test_level == 4:
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b>"
+        elif test_level == 5:
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa"
+        elif test_level == 6:
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк"
+        elif test_level == 7:
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>"
+        else:
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
+    elif parsed["locale"] == "en":
         body = f"Usеr <b>{seller_name}</b> оffers <b>{amount}</b> fоr thе gift <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nDeal is active <b>{remaining}</b>."
     elif parsed["locale"] == "cn":
         body = f"用户 <b>{seller_name}</b> 为礼物 <a href=\"{parsed['gift_url']}\">{title}</a> 出价 <b>{amount}</b>。\n\n报价将在 <b>{remaining}</b> 后过期。"
@@ -266,8 +288,10 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
         # Используем латинские буквы вместо русских: о→o, а→a, е→e
-        body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
-    markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
+        body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
+    
+    # Кнопки добавляем только в самом конце (уровень 8+)
+    markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
 
