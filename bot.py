@@ -290,8 +290,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
-        # Используем латинские буквы вместо русских: о→o, а→a, е→e
-        body = f"<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
+        # Убрали слово "предлагает" для теста
+        body = f"<b>{seller_name}</b> Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
