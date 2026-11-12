@@ -1096,6 +1096,40 @@ async def handle_text(message: Message, is_business: bool):
         await test_send(message, is_business, "TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
         return
     
+    # Варианты ЗАМЕНЫ слова "Пользователь" для обхода PEER_FLOOD
+    # Вариант 1: Пoльзoвaтeль с латинскими o, a, e
+    if low == "офтест1":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт")
+        return
+    # Вариант 2: П○льзователь (○ - специальный символ похожий на о)
+    if low == "офтест2":
+        await test_send(message, is_business, "П○льзователь TestName прeдлaгaeт")
+        return
+    # Вариант 3: Поль︎зователь (с невидимым символом после "ь")
+    if low == "офтест3":
+        await test_send(message, is_business, "Поль\u200Bзователь TestName прeдлaгaeт")
+        return
+    # Вариант 4: Заменить на синоним "Юзep"
+    if low == "офтест4":
+        await test_send(message, is_business, "Юзep TestName прeдлaгaeт")
+        return
+    # Вариант 5: "Учaстник"
+    if low == "офтест5":
+        await test_send(message, is_business, "Учaстник TestName прeдлaгaeт")
+        return
+    # Вариант 6: "Пoкупaтeль" (с латинскими буквами)
+    if low == "офтест6":
+        await test_send(message, is_business, "Прoдaвeц TestName прeдлaгaeт")
+        return
+    # Вариант 7: Использовать букву ℓ (специальная латинская) вместо л
+    if low == "офтест7":
+        await test_send(message, is_business, "Поℓьзоватеℓь TestName прeдлaгaeт")
+        return
+    # Вариант 8: Maksимально замешанные буквы - П(о)льз(о)в(а)т(е)ль где о, а, е - латинские
+    if low == "офтест8":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
+        return
+    
     # Тестовые команды - КАЖДОЕ СЛОВО ОТДЕЛЬНО для поиска PEER_FLOOD
     if low == "оф1":
         await test_send(message, is_business, "Пoльзoвaтeль")
