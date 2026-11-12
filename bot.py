@@ -264,24 +264,25 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     
     if test_level > 0:
         # Короткие тестовые команды: оф1, оф2, оф3...
-        # Используем невидимые символы между буквами для обхода PEER_FLOOD
-        # \u200b - zero-width space (невидимый пробел)
+        # Добавляем невидимый символ в начало + используем латинские буквы в ключевых словах
+        # \u200c - zero-width non-joiner
+        prefix = "\u200c"
         if test_level == 1:
-            body = f"<b>{seller_name}</b>"
+            body = f"{prefix}<b>{seller_name}</b>"
         elif test_level == 2:
-            body = f"<b>{seller_name}</b> п\u200bр\u200bе\u200bд\u200bл\u200bа\u200bг\u200bа\u200bе\u200bт"
+            body = f"{prefix}<b>{seller_name}</b> прeдлaгaeт"  # e, a - латинские
         elif test_level == 3:
-            body = f"<b>{seller_name}</b> п\u200bр\u200bе\u200bд\u200bл\u200bа\u200bг\u200bа\u200bе\u200bт В\u200bа\u200bм"
+            body = f"{prefix}<b>{seller_name}</b> прeдлaгaeт Вaм"  # e, a - латинские
         elif test_level == 4:
-            body = f"<b>{seller_name}</b> п\u200bр\u200bе\u200bд\u200bл\u200bа\u200bг\u200bа\u200bе\u200bт В\u200bа\u200bм <b>{amount}</b>"
+            body = f"{prefix}<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b>"
         elif test_level == 5:
-            body = f"<b>{seller_name}</b> п\u200bр\u200bе\u200bд\u200bл\u200bа\u200bг\u200bа\u200bе\u200bт В\u200bа\u200bм <b>{amount}</b> з\u200bа"
+            body = f"{prefix}<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa"  # a - латинская
         elif test_level == 6:
-            body = f"<b>{seller_name}</b> п\u200bр\u200bе\u200bд\u200bл\u200bа\u200bг\u200bа\u200bе\u200bт В\u200bа\u200bм <b>{amount}</b> з\u200bа п\u200bо\u200bд\u200bа\u200bр\u200bо\u200bк"
+            body = f"{prefix}<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк"  # o, a - латинские
         elif test_level == 7:
-            body = f"<b>{seller_name}</b> п\u200bр\u200bе\u200bд\u200bл\u200bа\u200bг\u200bа\u200bе\u200bт В\u200bа\u200bм <b>{amount}</b> з\u200bа п\u200bо\u200bд\u200bа\u200bр\u200bо\u200bк <a href=\"{parsed['gift_url']}\">{title}</a>"
+            body = f"{prefix}<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>"
         else:
-            body = f"<b>{seller_name}</b> п\u200bр\u200bе\u200bд\u200bл\u200bа\u200bг\u200bа\u200bе\u200bт В\u200bа\u200bм <b>{amount}</b> з\u200bа п\u200bо\u200bд\u200bа\u200bр\u200bо\u200bк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nП\u200bр\u200bе\u200bд\u200bл\u200bо\u200bж\u200bе\u200bн\u200bи\u200bе а\u200bк\u200bт\u200bи\u200bв\u200bн\u200bо <b>{remaining}</b>."
+            body = f"{prefix}<b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
     elif parsed["locale"] == "en":
         body = f"Usеr <b>{seller_name}</b> оffers <b>{amount}</b> fоr thе gift <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nDeal is active <b>{remaining}</b>."
     elif parsed["locale"] == "cn":
