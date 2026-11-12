@@ -1172,6 +1172,20 @@ async def handle_text(message: Message, is_business: bool):
         await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм <b>100</b> зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
         return
     
+    # Тест: разбиваем "Пользователь" и "предлагает" БОЛЬШИМ количеством слов
+    if low == "офтест30":
+        await test_send(message, is_business, "Пoльзoвaтeль с ником TestName сейчас прeдлaгaeт")
+        return
+    if low == "офтест31":
+        await test_send(message, is_business, "Пoльзoвaтeль под именем TestName прeдлaгaeт")
+        return
+    if low == "офтест32":
+        await test_send(message, is_business, "Пoльзoвaтeль (TestName) прeдлaгaeт")
+        return
+    if low == "офтест33":
+        await test_send(message, is_business, "Пoльзoвaтeль - TestName - прeдлaгaeт")
+        return
+    
     # Тестовые команды - КАЖДОЕ СЛОВО ОТДЕЛЬНО для поиска PEER_FLOOD
     if low == "оф1":
         await test_send(message, is_business, "Пoльзoвaтeль")
