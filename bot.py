@@ -1184,6 +1184,37 @@ async def handle_text(message: Message, is_business: bool):
         # Используем ДВОЙНОЙ перенос строки между словами (невидимый разрыв)
         await test_send(message, is_business, "Пoльзoвaтeль TestName\n\nпрeдлaгaeт Вaм")
         return
+    # Постепенно добавляем слова ПОСЛЕ "предлагает"
+    if low == "офтест53":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм")
+        return
+    if low == "офтест54":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100")
+        return
+    if low == "офтест55":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa")
+        return
+    if low == "офтест56":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
+        return
+    if low == "офтест57":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test")
+        return
+    if low == "офтест58":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.")
+        return
+    if low == "офтест59":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\n")
+        return
+    if low == "офтест60":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe")
+        return
+    if low == "офтест61":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo")
+        return
+    if low == "офтест62":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
+        return
     
     # Тестовые команды - КАЖДОЕ СЛОВО ОТДЕЛЬНО для поиска PEER_FLOOD
     if low == "оф1":
