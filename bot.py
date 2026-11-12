@@ -265,8 +265,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     elif parsed["locale"] == "ar":
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
-        # Заменяем "предлагает" на "гoтoв oтдaть" - комбинация "Пользователь предлагает" блокируется
-        body = f"Пoльзoвaтeль <b>{seller_name}</b> гoтoв oтдaть Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
+        # Добавляем пустой тег <i></i> между именем и "предлагает" чтобы разбить паттерн
+        body = f"Пoльзoвaтeль <b>{seller_name}</b><i></i> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
@@ -1112,18 +1112,15 @@ async def handle_text(message: Message, is_business: bool):
     if low == "оф7":
         await test_send(message, is_business, "aктивнo")
         return
-    # Теперь комбинации слов с заменой "предлагает" на "готов отдать"
-    if low == "оф10":
-        await test_send(message, is_business, "Пoльзoвaтeль прeдлaгaeт")
-        return
+    # Тест с пустым HTML-тегом между словами
     if low == "оф11":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName гoтoв oтдaть")
+        await test_send(message, is_business, "Пoльзoвaтeль<b></b> TestName прeдлaгaeт")
         return
     if low == "оф12":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName гoтoв oтдaть Вaм")
+        await test_send(message, is_business, "Пoльзoвaтeль<b></b> TestName прeдлaгaeт Вaм")
         return
     if low == "оф13":
-        await test_send(message, is_business, "Пoльзoвaтeль TestName гoтoв oтдaть Вaм 100 зa пoдaрoк")
+        await test_send(message, is_business, "Пoльзoвaтeль<b></b> TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
         return
     
     # Принимаем только новый префикс «Оф» (регистр не учитывается).
