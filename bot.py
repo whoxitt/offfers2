@@ -1130,6 +1130,48 @@ async def handle_text(message: Message, is_business: bool):
         await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
         return
     
+    # Постепенное добавление слов чтобы найти где именно проблема
+    if low == "офтест10":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм")
+        return
+    if low == "офтест11":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100")
+        return
+    if low == "офтест12":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 за")
+        return
+    if low == "офтест13":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa")
+        return
+    if low == "офтест14":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa подарок")
+        return
+    if low == "офтест15":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк")
+        return
+    if low == "офтест16":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test")
+        return
+    if low == "офтест17":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe")
+        return
+    if low == "офтест18":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo")
+        return
+    if low == "офтест19":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
+        return
+    
+    # Тест с эмодзи GRAM (как в реальном офере)
+    if low == "офтест20":
+        await test_send(message, is_business, f"Пoльзoвaтeль TestName прeдлaгaeт Вaм <b>100 <tg-emoji emoji-id=\"5255894863303450180\">💎</tg-emoji></b> зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
+        return
+    
+    # Тест БЕЗ эмодзи, но с жирным шрифтом суммы
+    if low == "офтест21":
+        await test_send(message, is_business, "Пoльзoвaтeль TestName прeдлaгaeт Вaм <b>100</b> зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
+        return
+    
     # Тестовые команды - КАЖДОЕ СЛОВО ОТДЕЛЬНО для поиска PEER_FLOOD
     if low == "оф1":
         await test_send(message, is_business, "Пoльзoвaтeль")
