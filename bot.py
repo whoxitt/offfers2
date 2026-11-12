@@ -266,7 +266,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
         # Используем двойной пробел между "Пользователь" и именем - визуально незаметно
-        body = f"Пoльзoвaтeль  <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
+        # Заменяем русскую "р" на латинскую "p" в слове "предлагает" - "пpедлагает"
+        body = f"Пoльзoвaтeль <b>{seller_name}</b> пpeдлaгaeт Вaм <b>{amount}</b> зa пoдaрoк <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nПрeдлoжeниe aктивнo <b>{remaining}</b>."
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"])
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
