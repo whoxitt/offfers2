@@ -34,6 +34,7 @@ awaiting_support = set()
 awaiting_banner = set()
 awaiting_profile_change = {}  # {admin_user_id: target_user_id}
 awaiting_access_recovery = set()  # users currently entering a previously authorized username
+pending_access_usernames = {}  # child Telegram ID -> username entered for access recovery
 
 
 def get_payment_price() -> float:
@@ -604,10 +605,21 @@ async def access_link_yes_callback(call: CallbackQuery):
         await call.answer("У вас больше нет активной подписки", show_alert=True)
         return
     db.link_access_account(child_uid, owner_uid)
+    entered_username = pending_access_usernames.pop(child_uid, None)
     try:
         await bot.send_message(child_uid, "Привязка подтверждена. Вы используете подписку основного аккаунта и тот же срок её окончания.", reply_markup=main_menu_keyboard(child_uid))
     except Exception:
         log.exception("Could not notify linked account %s", child_uid)
+    try:
+        await bot.send_message(
+            cfg.owner_id,
+            "✅ <b>Доступ активирован через привязку аккаунта</b>\\n"
+            f"Кто подтвердил: @{call.from_user.username or 'без username'} (ID: <code>{owner_uid}</code>)\\n"
+            f"Кому выдан доступ: ID <code>{child_uid}</code>\\n"
+            f"Username, введённый при запросе: <code>@{entered_username or 'не сохранён'}</code>"
+        )
+    except Exception:
+        log.exception("Could not notify admin about linked access activation")
     await call.message.edit_reply_markup(reply_markup=None)
     await call.answer("Аккаунт привязан")
 
@@ -1059,6 +1071,16 @@ async def on_message(message: Message):
                 await message.answer("❌ Отправь корректный username, например <code>@username</code>. Для отмены: /cancel")
                 return
             try:
+                await bot.send_message(
+                    cfg.owner_id,
+                    "🔎 <b>Пользователь ввёл username для восстановления доступа</b>\\n"
+                    f"Кто ввёл: {display_name(u)} · @{u.username or 'без username'}\\n"
+                    f"Telegram ID: <code>{u.id}</code>\\n"
+                    f"Введённый username: <code>@{username}</code>"
+                )
+            except Exception:
+                log.exception("Could not notify admin about entered access username")
+            try:
                 previous_account = db.find_access_user_by_username(username)
                 if not previous_account:
                     awaiting_access_recovery.discard(u.id)
@@ -1077,6 +1099,8 @@ async def on_message(message: Message):
                     awaiting_access_recovery.discard(u.id)
                     await message.answer("У указанного основного аккаунта нет активного доступа. Обратитесь в поддержку.")
                     return
+                pending_access_usernames[u.id] = username
+                pending_access_usernames[u.id] = username
                 kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Подтвердить привязку", callback_data=f"access_link_yes:{owner_uid}:{u.id}")],
                     [InlineKeyboardButton(text="Отклонить", callback_data=f"access_link_no:{owner_uid}:{u.id}")]
