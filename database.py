@@ -88,6 +88,22 @@ class Database:
         """CREATE TABLE IF NOT EXISTS referral_rewards (
             id BIGSERIAL PRIMARY KEY, referrer_id BIGINT NOT NULL, referred_id BIGINT NOT NULL UNIQUE,
             amount DOUBLE PRECISION NOT NULL DEFAULT 3, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS access_subscriptions (
+            user_id BIGINT PRIMARY KEY, username TEXT, granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            expires_at TIMESTAMPTZ, is_permanent BOOLEAN NOT NULL DEFAULT FALSE,
+            source TEXT NOT NULL DEFAULT 'payment', notified_for_expiry TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS access_links (
+            secondary_user_id BIGINT PRIMARY KEY, primary_user_id BIGINT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), is_active BOOLEAN NOT NULL DEFAULT TRUE)""",
+        """CREATE TABLE IF NOT EXISTS access_link_requests (
+            id BIGSERIAL PRIMARY KEY, primary_user_id BIGINT NOT NULL, secondary_user_id BIGINT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), status TEXT NOT NULL DEFAULT 'pending',
+            UNIQUE(primary_user_id, secondary_user_id))""",
+        "ALTER TABLE payments ADD COLUMN IF NOT EXISTS tx_hash TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_tx_hash_unique ON payments(tx_hash) WHERE tx_hash IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS idx_access_expiry ON access_subscriptions(expires_at) WHERE is_permanent=FALSE",
+        "CREATE INDEX IF NOT EXISTS idx_access_links_primary ON access_links(primary_user_id) WHERE is_active=TRUE",
         "CREATE INDEX IF NOT EXISTS idx_offers_status ON gift_offers(status)",
         "CREATE INDEX IF NOT EXISTS idx_offers_seller ON gift_offers(seller_id)",
         "CREATE INDEX IF NOT EXISTS idx_offers_buyer ON gift_offers(buyer_id)",
@@ -174,9 +190,27 @@ class Database:
             return cur.fetchone() is not None
 
     def has_access(self, user_id: int, owner_id: int, mode: str) -> bool:
-        if self.is_blocked(user_id): return False
-        if user_id == owner_id or mode == "all": return True
+        if user_id == owner_id:
+            return True
+        if self.is_blocked(user_id):
+            return False
         with self.connect() as con, con.cursor() as cur:
+            cur.execute("""SELECT a.user_id, a.expires_at, a.is_permanent
+                FROM access_links l JOIN access_subscriptions a ON a.user_id=l.primary_user_id
+                WHERE l.secondary_user_id=%s AND l.is_active=TRUE""", (user_id,))
+            linked = cur.fetchone()
+            if linked:
+                return bool(linked["is_permanent"] or (linked["expires_at"] and linked["expires_at"] > __import__("datetime").datetime.now(__import__("datetime").timezone.utc)))
+            cur.execute("SELECT expires_at,is_permanent FROM access_subscriptions WHERE user_id=%s", (user_id,))
+            sub = cur.fetchone()
+            if sub:
+                return bool(sub["is_permanent"] or (sub["expires_at"] and sub["expires_at"] > __import__("datetime").datetime.now(__import__("datetime").timezone.utc)))
+            # Legacy access rows were shared by admin grants and historical payments.
+            # If a paid invoice exists, its old expiry cannot be proven, so fail closed.
+            cur.execute("SELECT 1 FROM payments WHERE user_id=%s AND status='paid' LIMIT 1", (user_id,))
+            has_legacy_payment = cur.fetchone() is not None
+            if has_legacy_payment:
+                return False
             cur.execute("SELECT 1 FROM offer_access_users WHERE user_id=%s", (user_id,))
             return cur.fetchone() is not None
 
@@ -347,16 +381,125 @@ class Database:
             cur.execute("UPDATE payments SET status='paid',paid_at=NOW() WHERE id=%s AND status='pending' RETURNING id", (payment_id,))
             return cur.fetchone() is not None
 
-    def confirm_payment_and_grant_access(self, payment_id: int, user_id: int) -> bool:
-        """Confirm once and grant access in the same PostgreSQL transaction."""
+    def confirm_payment_and_grant_access(self, payment_id: int, user_id: int, tx_hash: str,
+                                         duration_hours: int = 48, username: str = None) -> bool:
+        """Atomically consume a unique transaction and extend the primary subscription."""
+        from datetime import timedelta
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("UPDATE payments SET status='paid',paid_at=NOW() WHERE id=%s AND user_id=%s AND status='pending' RETURNING id", (payment_id, user_id))
-            if cur.fetchone() is None:
+            cur.execute("SELECT amount,status FROM payments WHERE id=%s AND user_id=%s FOR UPDATE", (payment_id, user_id))
+            payment = cur.fetchone()
+            if not payment or payment["status"] != "pending":
                 return False
-            cur.execute("INSERT INTO offer_access_users(user_id) VALUES(%s) ON CONFLICT DO NOTHING", (user_id,))
+            # Serialize attempts using the same chain transaction hash.
+            cur.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (tx_hash,))
+            cur.execute("SELECT id FROM payments WHERE tx_hash=%s", (tx_hash,))
+            if cur.fetchone():
+                return False
+            cur.execute("UPDATE payments SET status='paid',paid_at=NOW(),tx_hash=%s WHERE id=%s AND user_id=%s AND status='pending'", (tx_hash,payment_id,user_id))
+            if cur.rowcount != 1:
+                return False
+            cur.execute("""INSERT INTO access_subscriptions(user_id,username,granted_at,expires_at,is_permanent,source,notified_for_expiry,updated_at)
+                VALUES(%s,%s,NOW(),NOW() + (%s * INTERVAL '1 hour'),FALSE,'payment',NULL,NOW())
+                ON CONFLICT(user_id) DO UPDATE SET
+                username=EXCLUDED.username,
+                expires_at=CASE WHEN access_subscriptions.is_permanent THEN access_subscriptions.expires_at
+                    WHEN access_subscriptions.expires_at > NOW()
+                    THEN access_subscriptions.expires_at + (%s * INTERVAL '1 hour')
+                    ELSE NOW() + (%s * INTERVAL '1 hour') END,
+                is_permanent=access_subscriptions.is_permanent,
+                source=CASE WHEN access_subscriptions.is_permanent THEN access_subscriptions.source ELSE 'payment' END,
+                notified_for_expiry=NULL, updated_at=NOW()""",
+                (user_id,username,duration_hours,duration_hours,duration_hours))
+            cur.execute("DELETE FROM offer_access_users WHERE user_id=%s", (user_id,))
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
             return True
+
+    def get_access_subscription(self, user_id: int):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""SELECT a.*, (SELECT COUNT(*) FROM access_links l WHERE l.primary_user_id=a.user_id AND l.is_active=TRUE) AS linked_count
+                FROM access_subscriptions a WHERE a.user_id=%s""", (user_id,))
+            return cur.fetchone()
+
+    def set_access(self, user_id: int, username: str = None, hours: int = None, permanent: bool = False, source: str = "admin"):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""INSERT INTO access_subscriptions(user_id,username,granted_at,expires_at,is_permanent,source,notified_for_expiry,updated_at)
+                VALUES(%s,%s,NOW(),CASE WHEN %s THEN NULL ELSE NOW() + (%s * INTERVAL '1 hour') END,%s,%s,NULL,NOW())
+                ON CONFLICT(user_id) DO UPDATE SET username=EXCLUDED.username,granted_at=NOW(),
+                expires_at=EXCLUDED.expires_at,is_permanent=EXCLUDED.is_permanent,source=EXCLUDED.source,
+                notified_for_expiry=NULL,updated_at=NOW()""",
+                (user_id,username,permanent,hours or 0,permanent,source))
+            cur.execute("DELETE FROM offer_access_users WHERE user_id=%s", (user_id,))
+            cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
+
+    def revoke_access(self, user_id: int, unlink: bool = True):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("DELETE FROM access_subscriptions WHERE user_id=%s", (user_id,))
+            cur.execute("DELETE FROM offer_access_users WHERE user_id=%s", (user_id,))
+            if unlink:
+                cur.execute("UPDATE access_links SET is_active=FALSE WHERE primary_user_id=%s OR secondary_user_id=%s", (user_id,user_id))
+
+    def find_user_by_username(self, username: str):
+        username = username.lstrip("@").lower()
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT user_id,username,first_name,last_name FROM bot_users WHERE LOWER(username)=%s ORDER BY updated_at DESC LIMIT 1", (username,))
+            return cur.fetchone()
+
+    def create_access_link_request(self, primary_id: int, secondary_id: int) -> int:
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""INSERT INTO access_link_requests(primary_user_id,secondary_user_id,status)
+                VALUES(%s,%s,'pending') ON CONFLICT(primary_user_id,secondary_user_id)
+                DO UPDATE SET status='pending',created_at=NOW() RETURNING id""",(primary_id,secondary_id))
+            return int(cur.fetchone()["id"])
+
+    def approve_access_link(self, request_id: int, primary_id: int) -> bool:
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""SELECT r.secondary_user_id,a.user_id FROM access_link_requests r
+                JOIN access_subscriptions a ON a.user_id=r.primary_user_id
+                WHERE r.id=%s AND r.primary_user_id=%s AND r.status='pending'
+                AND (a.is_permanent=TRUE OR a.expires_at>NOW()) FOR UPDATE""",(request_id,primary_id))
+            row=cur.fetchone()
+            if not row: return False
+            cur.execute("""INSERT INTO access_links(secondary_user_id,primary_user_id,is_active)
+                VALUES(%s,%s,TRUE) ON CONFLICT(secondary_user_id) DO UPDATE SET
+                primary_user_id=EXCLUDED.primary_user_id,is_active=TRUE,created_at=NOW()""",
+                (row["secondary_user_id"],primary_id))
+            cur.execute("UPDATE access_link_requests SET status='approved' WHERE id=%s",(request_id,))
+            return True
+
+    def reject_access_link(self, request_id: int, primary_id: int):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("UPDATE access_link_requests SET status='rejected' WHERE id=%s AND primary_user_id=%s AND status='pending'",(request_id,primary_id))
+
+    def get_expiring_access(self):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""SELECT user_id,expires_at FROM access_subscriptions
+                WHERE is_permanent=FALSE AND expires_at>NOW() AND expires_at<=NOW()+INTERVAL '1 hour'
+                AND notified_for_expiry IS NULL""")
+            return cur.fetchall()
+
+    def mark_expiry_notified(self, user_id: int, expires_at):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("UPDATE access_subscriptions SET notified_for_expiry=expires_at WHERE user_id=%s AND expires_at=%s AND notified_for_expiry IS NULL",(user_id,expires_at))
+
+    def expire_access(self):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""UPDATE offer_business_connections c SET is_blocked=TRUE,updated_at=NOW()
+                FROM access_subscriptions a WHERE c.user_id=a.user_id AND a.is_permanent=FALSE
+                AND a.expires_at<=NOW() AND c.is_blocked=FALSE""")
+            return cur.rowcount
+
+    def list_access_users(self, status: str = "active", limit: int = 100, offset: int = 0):
+        with self.connect() as con, con.cursor() as cur:
+            where = {
+                "active": "a.is_permanent=TRUE OR a.expires_at>NOW()",
+                "expired": "a.is_permanent=FALSE AND a.expires_at<=NOW()",
+                "permanent": "a.is_permanent=TRUE",
+            }.get(status, "TRUE")
+            cur.execute(f"""SELECT a.*,u.username,(SELECT COUNT(*) FROM access_links l WHERE l.primary_user_id=a.user_id AND l.is_active=TRUE) AS linked_count
+                FROM access_subscriptions a LEFT JOIN bot_users u ON u.user_id=a.user_id
+                WHERE {where} ORDER BY a.updated_at DESC LIMIT %s OFFSET %s""",(limit,offset))
+            return cur.fetchall()
 
     def confirm_payment_access_and_reward_referrer(self, payment_id: int, user_id: int, reward_amount: float = 3.0):
         """Atomically confirm first payment, grant access and credit a referrer once.
