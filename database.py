@@ -67,6 +67,8 @@ class Database:
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ",
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'admin'",
         "CREATE TABLE IF NOT EXISTS offer_blocked_users (user_id BIGINT PRIMARY KEY)",
+        "CREATE TABLE IF NOT EXISTS offer_access_links (child_user_id BIGINT PRIMARY KEY, owner_user_id BIGINT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+        "CREATE INDEX IF NOT EXISTS idx_offer_access_links_owner ON offer_access_links(owner_user_id)",
         "CREATE TABLE IF NOT EXISTS offer_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         """CREATE TABLE IF NOT EXISTS offer_user_profiles (
             user_id BIGINT PRIMARY KEY, name TEXT, url TEXT, updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
@@ -197,11 +199,31 @@ class Database:
             cur.execute("SELECT 1 FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             return cur.fetchone() is not None
 
-    def has_access(self, user_id: int, owner_id: int, mode: str) -> bool:
-        if self.is_blocked(user_id): return False
-        if user_id == owner_id or mode == "all": return True
+    def get_access_owner(self, user_id: int):
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("SELECT 1 FROM offer_access_users WHERE user_id=%s AND (expires_at IS NULL OR expires_at>NOW())", (user_id,))
+            cur.execute("SELECT owner_user_id FROM offer_access_links WHERE child_user_id=%s", (user_id,))
+            row = cur.fetchone()
+            return int(row["owner_user_id"]) if row else user_id
+
+    def link_access_account(self, child_user_id: int, owner_user_id: int):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("INSERT INTO offer_access_links(child_user_id,owner_user_id) VALUES(%s,%s) ON CONFLICT(child_user_id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,created_at=NOW()", (child_user_id, owner_user_id))
+            cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (child_user_id,))
+
+    def get_access_expiry(self, user_id: int):
+        owner_id = self.get_access_owner(user_id)
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT expires_at FROM offer_access_users WHERE user_id=%s AND (expires_at IS NULL OR expires_at>NOW())", (owner_id,))
+            row = cur.fetchone()
+            return row["expires_at"] if row else None
+
+    def has_access(self, user_id: int, owner_id: int, mode: str) -> bool:
+        if user_id == owner_id or mode == "all": return True
+        if self.is_blocked(user_id): return False
+        access_owner = self.get_access_owner(user_id)
+        if self.is_blocked(access_owner): return False
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT 1 FROM offer_access_users WHERE user_id=%s AND (expires_at IS NULL OR expires_at>NOW())", (access_owner,))
             return cur.fetchone() is not None
 
     def set_profile(self, user_id: int, name: Optional[str], url: Optional[str]):

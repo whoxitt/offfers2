@@ -118,8 +118,10 @@ def subscription_keyboard():
 
 
 def main_menu_keyboard(user_id: int | None = None):
+    has_access = bool(user_id and db.has_access(user_id, cfg.owner_id, cfg.offer_access_mode))
+    first_button = InlineKeyboardButton(text="Подписка", callback_data="my_subscription") if has_access else InlineKeyboardButton(text="Купить доступ", callback_data="buy_access")
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Купить", callback_data="buy_access")],
+        [first_button],
         [InlineKeyboardButton(text="🔑 Активировать доступ", callback_data="activate_access")],
         [InlineKeyboardButton(text="Инструкция", callback_data="show_instruction")],
         [InlineKeyboardButton(text="Я чайник", callback_data="support_start")],
@@ -547,6 +549,29 @@ async def check_subscription_callback(call: CallbackQuery):
     await call.answer("Подписка подтверждена!")
 
 
+@dp.callback_query(F.data == "my_subscription")
+async def my_subscription_callback(call: CallbackQuery):
+    uid = call.from_user.id
+    if not db.has_access(uid, cfg.owner_id, cfg.offer_access_mode):
+        await call.answer("Активная подписка не найдена", show_alert=True)
+        return
+    owner_uid = db.get_access_owner(uid)
+    expires = db.get_access_expiry(uid)
+    if expires is None:
+        remaining = "Бессрочно"
+    else:
+        seconds = max(0, int((expires - datetime.now(expires.tzinfo or timezone.utc)).total_seconds()))
+        days, rem = divmod(seconds, 86400)
+        hours, rem = divmod(rem, 3600)
+        minutes = rem // 60
+        remaining = (f"{days} дн. " if days else "") + f"{hours} ч. {minutes} мин."
+    text = f"<b>Подписка</b>\n\nОсталось: <b>{remaining}</b>"
+    if owner_uid != uid:
+        text += "\nПодписка основного аккаунта используется совместно."
+    await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В главное меню", callback_data="back_to_start")]]))
+    await call.answer()
+
+
 @dp.callback_query(F.data == "activate_access")
 async def activate_access_callback(call: CallbackQuery):
     if not call.from_user:
@@ -565,6 +590,41 @@ async def activate_access_callback(call: CallbackQuery):
         "Чтобы отменить, отправь /cancel."
     )
     await call.answer()
+
+
+@dp.callback_query(F.data.startswith("access_link_yes:"))
+async def access_link_yes_callback(call: CallbackQuery):
+    _, expected_owner, child = call.data.split(":", 2)
+    owner_uid = int(expected_owner)
+    child_uid = int(child)
+    if call.from_user.id != owner_uid:
+        await call.answer("Этот запрос предназначен другому аккаунту", show_alert=True)
+        return
+    if not db.has_access(owner_uid, cfg.owner_id, cfg.offer_access_mode):
+        await call.answer("У вас больше нет активной подписки", show_alert=True)
+        return
+    db.link_access_account(child_uid, owner_uid)
+    try:
+        await bot.send_message(child_uid, "Привязка подтверждена. Вы используете подписку основного аккаунта и тот же срок её окончания.", reply_markup=main_menu_keyboard(child_uid))
+    except Exception:
+        log.exception("Could not notify linked account %s", child_uid)
+    await call.message.edit_reply_markup(reply_markup=None)
+    await call.answer("Аккаунт привязан")
+
+
+@dp.callback_query(F.data.startswith("access_link_no:"))
+async def access_link_no_callback(call: CallbackQuery):
+    _, expected_owner, child = call.data.split(":", 2)
+    if call.from_user.id != int(expected_owner):
+        await call.answer("Этот запрос предназначен другому аккаунту", show_alert=True)
+        return
+    child_uid = int(child)
+    await call.message.edit_reply_markup(reply_markup=None)
+    try:
+        await bot.send_message(child_uid, "Владелец основного аккаунта отклонил запрос на привязку.")
+    except Exception:
+        pass
+    await call.answer("Запрос отклонён")
 
 
 @dp.callback_query(F.data == "my_profile")
@@ -1003,24 +1063,25 @@ async def on_message(message: Message):
                         "Проверь username и попробуй ещё раз."
                     )
                     return
-                if db.is_blocked(u.id):
+                owner_uid = int(previous_account["user_id"])
+                if owner_uid == u.id:
                     awaiting_access_recovery.discard(u.id)
-                    await message.answer("⛔ Для этого аккаунта доступ заблокирован. Обратись в поддержку.")
+                    await message.answer("Этот аккаунт уже является основным.", reply_markup=main_menu_keyboard(u.id))
                     return
-                db.add_access(u.id)
-                connection = db.get_connection_for_user(u.id)
-                if connection:
-                    db.set_connection_blocked(connection["connection_id"], False)
+                if db.is_blocked(owner_uid) or not db.has_access(owner_uid, cfg.owner_id, cfg.offer_access_mode):
+                    awaiting_access_recovery.discard(u.id)
+                    await message.answer("У указанного основного аккаунта нет активного доступа. Обратитесь в поддержку.")
+                    return
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="Подтвердить привязку", callback_data=f"access_link_yes:{owner_uid}:{u.id}")],
+                    [InlineKeyboardButton(text="Отклонить", callback_data=f"access_link_no:{owner_uid}:{u.id}")]
+                ])
+                await bot.send_message(owner_uid,
+                    f"Запрос на привязку дополнительного аккаунта: @{u.username or 'username не указан'}\nID: <code>{u.id}</code>\n\nРазрешить использовать вашу подписку?",
+                    reply_markup=kb)
                 awaiting_access_recovery.discard(u.id)
-                await message.answer(
-                    "✅ <b>Доступ восстановлен!</b>\n\n"
-                    "Этот аккаунт теперь может пользоваться оферами.",
-                    reply_markup=main_menu_keyboard(u.id)
-                )
-                log.info(
-                    "ACCESS_RECOVERED current_user_id=%s verified_user_id=%s verified_username=%s",
-                    u.id, previous_account["user_id"], username
-                )
+                await message.answer("Запрос отправлен на основной аккаунт. Доступ появится только после подтверждения владельцем.")
+                log.info("ACCESS_LINK_REQUEST child=%s owner=%s username=%s", u.id, owner_uid, username)
             except Exception:
                 log.exception("Access recovery failed for user_id=%s", u.id)
                 await message.answer("❌ Не удалось проверить доступ из-за ошибки базы. Попробуй позже.")
