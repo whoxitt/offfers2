@@ -134,16 +134,14 @@ def purchase_success_keyboard():
 
 def admin_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Доступы", callback_data="adm:access:0")],
         [InlineKeyboardButton(text="Статистика", callback_data="adm:stats:0")],
         [InlineKeyboardButton(text="Изменить баннер", callback_data="adm:banner:0")],
-        [InlineKeyboardButton(text="🔌 Подключения", callback_data="adm:connections:0"),
-         InlineKeyboardButton(text="📣 Рассылка", callback_data="adm:broadcast:0")],
-        [InlineKeyboardButton(text="Выдать доступ по @username", callback_data="adm:allow_username:0")],
-        [InlineKeyboardButton(text="Изменить цену доступа", callback_data="adm:payment_price:0")],
-        [InlineKeyboardButton(text="👤 Изменить профиль кнопки 'Передать'", callback_data="adm:change_profile:0")],
-        [InlineKeyboardButton(text="🔄 Обновить", callback_data="adm:home:0")],
+        [InlineKeyboardButton(text="Подключения", callback_data="adm:connections:0"),
+         InlineKeyboardButton(text="Рассылка", callback_data="adm:broadcast:0")],
+        [InlineKeyboardButton(text="Изменить профиль кнопки 'Передать'", callback_data="adm:change_profile:0")],
+        [InlineKeyboardButton(text="Обновить", callback_data="adm:home:0")],
     ])
-
 
 
 
@@ -499,12 +497,12 @@ async def on_start(message: Message):
             return
         
         # Показываем варианты оплаты
-        pending = db.get_pending_payment(user.id)
-        if not pending:
-            # Создаём новый платёж
-            memo = str(uuid.uuid4())[:8].upper()
-            payment_id = db.create_payment(user.id, memo, get_payment_price())
-            pending = {'id': payment_id, 'memo': memo, 'amount': get_payment_price()}
+        # Не переиспользуем старый счёт: цена могла измениться в админке.
+        db.cancel_pending_payments(user.id)
+        current_price = get_payment_price()
+        memo = str(uuid.uuid4())[:8].upper()
+        payment_id = db.create_payment(user.id, memo, current_price)
+        pending = {'id': payment_id, 'memo': memo, 'amount': current_price}
         
         await show_payment_options(message, user.id, pending)
         return
@@ -636,22 +634,17 @@ async def buy_access_callback(call: CallbackQuery):
         await call.answer("Ошибка", show_alert=True)
         return
     
-    # Проверяем есть ли уже активный платёж
-    pending = db.get_pending_payment(call.from_user.id)
-    if pending:
-        # Показываем существующий платёж
-        await show_payment_options(call.message, call.from_user.id, pending)
-        await call.answer()
-        return
-    
-    # Создаём новый платёж
+    # Новый счёт всегда создаётся по актуальной цене из админки.
+    # Старые неоплаченные счета отменяются и не могут подменить новую сумму.
+    db.cancel_pending_payments(call.from_user.id)
+    current_price = get_payment_price()
     memo = str(uuid.uuid4())[:8].upper()
-    payment_id = db.create_payment(call.from_user.id, memo, get_payment_price())
-    
+    payment_id = db.create_payment(call.from_user.id, memo, current_price)
+
     await show_payment_options(call.message, call.from_user.id, {
         'id': payment_id,
         'memo': memo,
-        'amount': get_payment_price()
+        'amount': current_price
     })
     await call.answer()
 
@@ -1224,6 +1217,53 @@ async def admin_callback(call: CallbackQuery):
     except ValueError:
         offset = 0
 
+    if action == "access":
+        text = (
+            "<b>Управление доступами</b>\\n\\n"
+            f"Текущая цена: <b>{get_payment_price():g} TON</b>\\n"
+            "Выберите действие."
+        )
+        markup = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Изменить цену доступа", callback_data="adm:payment_price:0")],
+            [InlineKeyboardButton(text="Выдать доступ по @username", callback_data="adm:allow_username:0")],
+            [InlineKeyboardButton(text="Выдать доступ по Telegram ID", callback_data="adm:allow_id:0")],
+            [InlineKeyboardButton(text="Забрать доступ у всех", callback_data="adm:revoke_all_prompt:0")],
+            [InlineKeyboardButton(text="Назад в админку", callback_data="adm:home:0")],
+        ])
+        await call.answer()
+        try:
+            await call.message.edit_text(text, reply_markup=markup)
+        except Exception:
+            await call.message.answer(text, reply_markup=markup)
+        return
+
+    if action == "revoke_all_prompt":
+        markup = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Да, забрать у всех", callback_data="adm:revoke_all_confirm:0")],
+            [InlineKeyboardButton(text="Отмена", callback_data="adm:access:0")],
+        ])
+        await call.answer()
+        await call.message.edit_text(
+            "Подтвердите массовый отзыв доступа.\\n\\n"
+            "Доступ обычных пользователей будет отозван, дополнительные Business-подключения заблокированы. "
+            "История платежей и пользователи останутся в базе. Владелец не затрагивается.",
+            reply_markup=markup
+        )
+        return
+
+    if action == "revoke_all_confirm":
+        removed = db.revoke_all_access(cfg.owner_id)
+        await call.answer("Доступы отозваны", show_alert=True)
+        await call.message.edit_text(
+            f"Массовый отзыв завершён. Удалено активных выдач: {removed}.\\n"
+            "История платежей и пользователи сохранены.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="К управлению доступами", callback_data="adm:access:0")],
+                [InlineKeyboardButton(text="В админку", callback_data="adm:home:0")],
+            ])
+        )
+        return
+
     if action == "payment_price":
         awaiting_payment_price.add(cfg.owner_id)
         await call.answer()
@@ -1243,6 +1283,10 @@ async def admin_callback(call: CallbackQuery):
     if action == "allow_username":
         await call.answer()
         await call.message.answer("Чтобы выдать доступ по username, отправь команду: <code>/allow @username</code>. Пользователь должен хотя бы раз запустить бота.")
+        return
+    if action == "allow_id":
+        await call.answer()
+        await call.message.answer("Чтобы выдать доступ по Telegram ID, отправь команду: <code>/allow 123456789</code>.")
         return
     if action == "stats":
         offers = db.stats()
