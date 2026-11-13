@@ -29,6 +29,7 @@ dp = Dispatcher()
 offer_locks = {}
 awaiting_broadcast = set()
 awaiting_payment_price = set()
+awaiting_access_grant = set()
 awaiting_support = set()
 awaiting_banner = set()
 awaiting_profile_change = {}  # {admin_user_id: target_user_id}
@@ -658,7 +659,7 @@ async def show_payment_options(message: Message, user_id: int, payment: dict):
     text = (
         "<b>Оплата доступа</b>\n\n"
         f"Стоимость: <b>{amount:g} TON</b>\n"
-        "Срок доступа: <b>48 часов</b>\n\n"
+        f"Срок доступа: <b>{cfg.access_duration_hours:g} часов</b>\n\n"
         "Выберите способ оплаты:"
     )
     
@@ -770,12 +771,12 @@ async def pay_check_callback(call: CallbackQuery):
     
     if paid:
         # Подтверждаем оплату и выдаём доступ
-        db.confirm_payment_and_grant_access(payment_id, call.from_user.id)
+        db.confirm_payment_and_grant_access(payment_id, call.from_user.id, cfg.access_duration_hours)
         
         caption = (
-            "✅ <b>ПЛАТЁЖ ПОДТВЕРЖДЁН!</b>\n\n"
-            "Доступ к OfferBot активирован!\n"
-            "Удачного ворка! Смотри инструкцию 📘"
+            "Платёж подтверждён!\n\n"
+            f"Доступ к OfferBot активирован на {cfg.access_duration_hours:g} часов.\n"
+            "Удачного пользования!"
         )
         success_keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
@@ -883,6 +884,40 @@ async def on_business_message(message: Message):
 
 @dp.message()
 async def on_message(message: Message):
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_access_grant:
+        raw = (message.text or "").strip()
+        if raw.lower() == "/cancel":
+            awaiting_access_grant.discard(cfg.owner_id)
+            await message.answer("Выдача временного доступа отменена.", reply_markup=admin_keyboard())
+            return
+        parts = raw.split()
+        if len(parts) != 2:
+            await message.answer("Формат: <code>Telegram ID или @username часы</code>. Например: <code>123456789 48</code>.")
+            return
+        target, hours_raw = parts
+        try:
+            hours = float(hours_raw.replace(",", "."))
+            if not (0 < hours <= 8760):
+                raise ValueError
+        except ValueError:
+            await message.answer("Срок должен быть от 0 до 8760 часов. Например: <code>48</code>.")
+            return
+        if target.lstrip("@").isdigit():
+            uid = int(target.lstrip("@"))
+        else:
+            found = db.find_user_by_username(target)
+            if not found:
+                await message.answer("Пользователь не найден. Он должен хотя бы раз запустить бота. Попробуйте Telegram ID или /cancel.")
+                return
+            uid = int(found["user_id"])
+        db.grant_timed_access(uid, hours, "admin")
+        awaiting_access_grant.discard(cfg.owner_id)
+        try:
+            await bot.send_message(uid, f"Вам выдан доступ к OfferBot на {hours:g} часов.")
+        except Exception:
+            pass
+        await message.answer(f"Временный доступ выдан пользователю <code>{uid}</code> на <b>{hours:g} часов</b>.", reply_markup=admin_keyboard())
+        return
     if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_payment_price:
         raw = (message.text or "").strip().replace(",", ".")
         if raw.lower() == "/cancel":
@@ -1227,6 +1262,7 @@ async def admin_callback(call: CallbackQuery):
             [InlineKeyboardButton(text="Изменить цену доступа", callback_data="adm:payment_price:0")],
             [InlineKeyboardButton(text="Выдать доступ по @username", callback_data="adm:allow_username:0")],
             [InlineKeyboardButton(text="Выдать доступ по Telegram ID", callback_data="adm:allow_id:0")],
+            [InlineKeyboardButton(text="Выдать временный доступ", callback_data="adm:allow_temp:0")],
             [InlineKeyboardButton(text="Забрать доступ у всех", callback_data="adm:revoke_all_prompt:0")],
             [InlineKeyboardButton(text="Назад в админку", callback_data="adm:home:0")],
         ])
@@ -1278,6 +1314,16 @@ async def admin_callback(call: CallbackQuery):
         awaiting_banner.add(cfg.owner_id)
         await call.answer()
         await call.message.answer("Отправьте новую фотографию баннера. Она будет показана вместе с текстом «Привет, выбери действие» и кнопками /start. Для отмены: /cancel")
+        return
+
+    if action == "allow_temp":
+        awaiting_access_grant.add(cfg.owner_id)
+        await call.answer()
+        await call.message.answer(
+            "Отправьте ID или @username и срок в часах через пробел.\n"
+            "Например: <code>123456789 48</code> или <code>@username 48</code>.\n"
+            "Можно указать 12, 48, 168 или любое количество часов. Для отмены: /cancel"
+        )
         return
 
     if action == "allow_username":
@@ -1477,6 +1523,25 @@ async def offer_callback(call: CallbackQuery):
                     log.exception("[OFFER DECLINE ALERT ERROR] offer_id=%s", offer_id)
 
 
+async def access_reminder_job():
+    while True:
+        try:
+            due_users = db.claim_one_hour_reminders()
+            for row in due_users:
+                uid = int(row["user_id"])
+                try:
+                    await bot.send_message(
+                        uid,
+                        "До окончания твоего доступа остался 1 час!\n\n"
+                        "Продли доступ, чтобы продолжить пользоваться OfferBot."
+                    )
+                except Exception:
+                    log.warning("Could not send access expiry reminder to user_id=%s", uid)
+        except Exception:
+            log.exception("Access reminder job failed")
+        await asyncio.sleep(60)
+
+
 async def cleanup_job():
     while True:
         try:
@@ -1488,6 +1553,7 @@ async def cleanup_job():
 
 async def main():
     asyncio.create_task(cleanup_job())
+    asyncio.create_task(access_reminder_job())
     for uid in cfg.offer_always_allowed_ids:
         db.add_access(uid); db.unblock_offer_user(uid)
     log.info("OfferBot starting; owner_id=%s database=%s", cfg.owner_id, "PostgreSQL")

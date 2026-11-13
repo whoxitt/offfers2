@@ -62,7 +62,10 @@ class Database:
             connection_id TEXT PRIMARY KEY, user_id BIGINT NOT NULL, username TEXT, first_name TEXT, last_name TEXT,
             is_enabled BOOLEAN NOT NULL DEFAULT TRUE, is_blocked BOOLEAN NOT NULL DEFAULT FALSE,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
-        "CREATE TABLE IF NOT EXISTS offer_access_users (user_id BIGINT PRIMARY KEY)",
+        "CREATE TABLE IF NOT EXISTS offer_access_users (user_id BIGINT PRIMARY KEY, expires_at TIMESTAMPTZ, reminder_sent_at TIMESTAMPTZ, source TEXT NOT NULL DEFAULT 'admin')",
+        "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ",
+        "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ",
+        "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'admin'",
         "CREATE TABLE IF NOT EXISTS offer_blocked_users (user_id BIGINT PRIMARY KEY)",
         "CREATE TABLE IF NOT EXISTS offer_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         """CREATE TABLE IF NOT EXISTS offer_user_profiles (
@@ -156,6 +159,27 @@ class Database:
         with self.connect() as con, con.cursor() as cur:
             cur.execute("INSERT INTO offer_access_users(user_id) VALUES(%s) ON CONFLICT DO NOTHING", (user_id,))
 
+    def grant_timed_access(self, user_id: int, hours: float, source: str = "admin"):
+        """Grant hours, extending an active timed subscription; null expiry is legacy/permanent."""
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""INSERT INTO offer_access_users(user_id,expires_at,reminder_sent_at,source)
+                VALUES(%s,NOW()+(%s * INTERVAL '1 hour'),NULL,%s)
+                ON CONFLICT(user_id) DO UPDATE SET
+                expires_at=CASE WHEN offer_access_users.expires_at IS NOT NULL AND offer_access_users.expires_at>NOW()
+                    THEN offer_access_users.expires_at+(%s * INTERVAL '1 hour')
+                    ELSE NOW()+(%s * INTERVAL '1 hour') END,
+                reminder_sent_at=NULL, source=EXCLUDED.source""", (user_id,hours,source,hours,hours))
+            cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
+            cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
+
+    def claim_one_hour_reminders(self):
+        """Atomically claim reminders due within the next hour, once per access period."""
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""UPDATE offer_access_users SET reminder_sent_at=NOW()
+                WHERE expires_at IS NOT NULL AND expires_at>NOW() AND expires_at<=NOW()+INTERVAL '1 hour'
+                AND reminder_sent_at IS NULL RETURNING user_id,expires_at""")
+            return cur.fetchall()
+
     def remove_access(self, user_id: int):
         with self.connect() as con, con.cursor() as cur:
             cur.execute("DELETE FROM offer_access_users WHERE user_id=%s", (user_id,))
@@ -177,7 +201,7 @@ class Database:
         if self.is_blocked(user_id): return False
         if user_id == owner_id or mode == "all": return True
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("SELECT 1 FROM offer_access_users WHERE user_id=%s", (user_id,))
+            cur.execute("SELECT 1 FROM offer_access_users WHERE user_id=%s AND (expires_at IS NULL OR expires_at>NOW())", (user_id,))
             return cur.fetchone() is not None
 
     def set_profile(self, user_id: int, name: Optional[str], url: Optional[str]):
@@ -367,13 +391,19 @@ class Database:
             cur.execute("UPDATE payments SET status='paid',paid_at=NOW() WHERE id=%s AND status='pending' RETURNING id", (payment_id,))
             return cur.fetchone() is not None
 
-    def confirm_payment_and_grant_access(self, payment_id: int, user_id: int) -> bool:
+    def confirm_payment_and_grant_access(self, payment_id: int, user_id: int, duration_hours: float = 48) -> bool:
         """Confirm once and grant access in the same PostgreSQL transaction."""
         with self.connect() as con, con.cursor() as cur:
             cur.execute("UPDATE payments SET status='paid',paid_at=NOW() WHERE id=%s AND user_id=%s AND status='pending' RETURNING id", (payment_id, user_id))
             if cur.fetchone() is None:
                 return False
-            cur.execute("INSERT INTO offer_access_users(user_id) VALUES(%s) ON CONFLICT DO NOTHING", (user_id,))
+            cur.execute("""INSERT INTO offer_access_users(user_id,expires_at,reminder_sent_at,source)
+                VALUES(%s,NOW()+(%s * INTERVAL '1 hour'),NULL,'payment')
+                ON CONFLICT(user_id) DO UPDATE SET
+                expires_at=CASE WHEN offer_access_users.expires_at IS NOT NULL AND offer_access_users.expires_at>NOW()
+                    THEN offer_access_users.expires_at+(%s * INTERVAL '1 hour')
+                    ELSE NOW()+(%s * INTERVAL '1 hour') END,
+                reminder_sent_at=NULL,source='payment'""", (user_id,duration_hours,duration_hours,duration_hours))
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
             return True
