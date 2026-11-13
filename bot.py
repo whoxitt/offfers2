@@ -17,7 +17,7 @@ from database import Database
 from offer import (ACCEPT_EMOJI_ID, DECLINE_EMOJI_ID, GIFT_EMOJI_ID, TRANSFER_EMOJI_ID,
                    PREMIUM_EMOJI_ID, DONE_EMOJI_ID, STARS_EMOJI_ID, GRAM_EMOJI_ID,
                    display_amount, format_remaining, gift_title, make_expiry, parse_offer)
-from payment import TonkeeperAPI, TonAPIError
+from payment import TonkeeperAPI
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("offerbot")
@@ -28,10 +28,19 @@ bot = Bot(cfg.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML)
 dp = Dispatcher()
 offer_locks = {}
 awaiting_broadcast = set()
+awaiting_payment_price = set()
 awaiting_support = set()
 awaiting_banner = set()
 awaiting_profile_change = {}  # {admin_user_id: target_user_id}
 awaiting_access_recovery = set()  # users currently entering a previously authorized username
+
+
+def get_payment_price() -> float:
+    """Текущая цена TON: настройка админки имеет приоритет над ENV."""
+    try:
+        return float(db.get_setting("payment_price", str(cfg.payment_price)))
+    except (TypeError, ValueError):
+        return cfg.payment_price
 
 
 def display_name(user) -> str:
@@ -129,10 +138,8 @@ def admin_keyboard():
         [InlineKeyboardButton(text="Изменить баннер", callback_data="adm:banner:0")],
         [InlineKeyboardButton(text="🔌 Подключения", callback_data="adm:connections:0"),
          InlineKeyboardButton(text="📣 Рассылка", callback_data="adm:broadcast:0")],
-        [InlineKeyboardButton(text="🟢 Выдать доступ по @username", callback_data="adm:allow_username:0")],
-        [InlineKeyboardButton(text="⏳ Управление сроками доступа", callback_data="adm:access_help:0")],
-        [InlineKeyboardButton(text="👥 Пользователи с доступом", callback_data="adm:access_users:0")],
-        [InlineKeyboardButton(text="🧹 Забрать доступ у ВСЕХ", callback_data="adm:revoke_all_confirm:0")],
+        [InlineKeyboardButton(text="Выдать доступ по @username", callback_data="adm:allow_username:0")],
+        [InlineKeyboardButton(text="Изменить цену доступа", callback_data="adm:payment_price:0")],
         [InlineKeyboardButton(text="👤 Изменить профиль кнопки 'Передать'", callback_data="adm:change_profile:0")],
         [InlineKeyboardButton(text="🔄 Обновить", callback_data="adm:home:0")],
     ])
@@ -200,7 +207,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
                 message, 
                 "🔒 <b>Доступ не оплачен</b>\n\n"
                 "Для отправки оферов необходимо купить доступ.\n"
-                f"Стоимость: <b>{cfg.payment_price:g} TON</b>",
+                f"Стоимость: <b>{get_payment_price():g} TON</b>",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="💎 Купить доступ", url=f"https://t.me/{cfg.bot_username}?start=buy")]
                 ])
@@ -220,7 +227,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
                 message, 
                 "🔒 <b>Доступ не оплачен</b>\n\n"
                 "Для отправки оферов необходимо купить доступ.\n"
-                f"Стоимость: <b>{cfg.payment_price:g} TON</b>",
+                f"Стоимость: <b>{get_payment_price():g} TON</b>",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="💎 Купить доступ", url=f"https://t.me/{cfg.bot_username}?start=buy")]
                 ])
@@ -495,9 +502,9 @@ async def on_start(message: Message):
         pending = db.get_pending_payment(user.id)
         if not pending:
             # Создаём новый платёж
-            memo = f"OB{uuid.uuid4().hex[:20].upper()}"
-            payment_id = db.create_payment(user.id, memo, cfg.payment_price)
-            pending = {'id': payment_id, 'memo': memo, 'amount': cfg.payment_price}
+            memo = str(uuid.uuid4())[:8].upper()
+            payment_id = db.create_payment(user.id, memo, get_payment_price())
+            pending = {'id': payment_id, 'memo': memo, 'amount': get_payment_price()}
         
         await show_payment_options(message, user.id, pending)
         return
@@ -559,28 +566,6 @@ async def activate_access_callback(call: CallbackQuery):
         "Чтобы отменить, отправь /cancel."
     )
     await call.answer()
-
-
-@dp.callback_query(F.data.startswith("link:"))
-async def access_link_callback(call: CallbackQuery):
-    if not call.from_user:
-        await call.answer("Ошибка", show_alert=True)
-        return
-    parts = call.data.split(":")
-    if len(parts) != 3 or not parts[2].isdigit():
-        await call.answer("Некорректный запрос", show_alert=True)
-        return
-    request_id = int(parts[2])
-    if parts[1] == "approve":
-        if not db.approve_access_link(request_id, call.from_user.id):
-            await call.answer("Запрос не найден или срок доступа истёк", show_alert=True)
-            return
-        await call.answer("Аккаунт привязан")
-        await call.message.answer("✅ Дополнительный аккаунт привязан к вашей подписке. Срок окончания общий.")
-    elif parts[1] == "reject":
-        db.reject_access_link(request_id, call.from_user.id)
-        await call.answer("Запрос отклонён")
-        await call.message.answer("Запрос на привязку отклонён.")
 
 
 @dp.callback_query(F.data == "my_profile")
@@ -660,13 +645,13 @@ async def buy_access_callback(call: CallbackQuery):
         return
     
     # Создаём новый платёж
-    memo = f"OB{uuid.uuid4().hex[:20].upper()}"
-    payment_id = db.create_payment(call.from_user.id, memo, cfg.payment_price)
+    memo = str(uuid.uuid4())[:8].upper()
+    payment_id = db.create_payment(call.from_user.id, memo, get_payment_price())
     
     await show_payment_options(call.message, call.from_user.id, {
         'id': payment_id,
         'memo': memo,
-        'amount': cfg.payment_price
+        'amount': get_payment_price()
     })
     await call.answer()
 
@@ -678,10 +663,10 @@ async def show_payment_options(message: Message, user_id: int, payment: dict):
     payment_id = payment['id']
     
     text = (
-        "<b>💎 ОПЛАТА ДОСТУПА</b>\n\n"
-        f"<b>Стоимость:</b> {amount:g} TON\n\n"
-        f"<b>Срок доступа:</b> {cfg.access_duration_hours} часов\\n\\n"
-        "<b>Выберите способ оплаты:</b>"
+        "<b>Оплата доступа</b>\n\n"
+        f"Стоимость: <b>{amount:g} TON</b>\n"
+        "Срок доступа: <b>48 часов</b>\n\n"
+        "Выберите способ оплаты:"
     )
     
     keyboard = []
@@ -689,17 +674,17 @@ async def show_payment_options(message: Message, user_id: int, payment: dict):
     # Tonkeeper
     if cfg.ton_wallet:
         keyboard.append([InlineKeyboardButton(
-            text="💎 Оплатить через Tonkeeper",
+            text="Оплатить через Tonkeeper",
             callback_data=f"pay:ton:{payment_id}"
         )])
     
     keyboard.append([InlineKeyboardButton(
-        text="🔄 Проверить оплату",
+        text="Проверить оплату",
         callback_data=f"pay:check:{payment_id}"
     )])
     
     keyboard.append([InlineKeyboardButton(
-        text="« Назад",
+        text="Назад",
         callback_data="back_to_start"
     )])
     
@@ -735,18 +720,17 @@ async def pay_ton_callback(call: CallbackQuery):
     ton_url = f"https://app.tonkeeper.com/transfer/{cfg.ton_wallet}?amount={int(amount * 1_000_000_000)}&text={quote(memo, safe='')}"
     
     text = (
-        "<b>💎 ОПЛАТА ЧЕРЕЗ TONKEEPER</b>\n\n"
-        f"<b>Сумма:</b> {amount:g} TON\n"
-        f"<b>Кошелёк:</b> <code>{cfg.ton_wallet}</code>\n"
-        f"<b>Комментарий (ОБЯЗАТЕЛЬНО):</b> <code>{memo}</code>\n\n"
-        "⚠️ <b>ВАЖНО!</b> Обязательно укажите комментарий <code>{}</code> при переводе!\n\n"
-        "После оплаты нажмите <b>🔄 Проверить оплату</b>"
-    ).format(memo)
+        "<b>Оплата через Tonkeeper</b>\n\n"
+        f"Сумма: <b>{amount:g} TON</b>\n"
+        f"Кошелёк: <code>{cfg.ton_wallet}</code>\n"
+        f"Комментарий: <code>{memo}</code>\n\n"
+        "Укажите этот комментарий при переводе. После оплаты нажмите «Проверить оплату»."
+    )
     
     keyboard = [
-        [InlineKeyboardButton(text="💎 Оплатить через TonKeepr", url=ton_url)],
-        [InlineKeyboardButton(text="🔄 Проверить оплату", callback_data=f"pay:check:{payment_id}")],
-        [InlineKeyboardButton(text="« Назад", callback_data="buy_access")]
+        [InlineKeyboardButton(text="Открыть Tonkeeper", url=ton_url)],
+        [InlineKeyboardButton(text="Проверить оплату", callback_data=f"pay:check:{payment_id}")],
+        [InlineKeyboardButton(text="Назад", callback_data="buy_access")]
     ]
     
     try:
@@ -783,23 +767,21 @@ async def pay_check_callback(call: CallbackQuery):
     
     await call.answer("🔄 Проверяю оплату...", show_alert=False)
     
-    tx_hash = None
-    try:
-        if not cfg.ton_wallet:
-            raise TonAPIError("TON_WALLET is not configured")
-        tx_hash = await TonkeeperAPI(cfg.ton_wallet, cfg.ton_api_key).find_payment(payment['memo'], float(payment['amount']))
-    except TonAPIError:
-        log.exception("TON payment verification unavailable for payment_id=%s", payment_id)
-        await call.message.answer("⚠️ Не удалось проверить транзакцию. Попробуй немного позже. Деньги повторно отправлять не нужно.")
-        return
-    if tx_hash:
-        confirmed = db.confirm_payment_and_grant_access(payment_id, call.from_user.id, tx_hash, cfg.access_duration_hours, call.from_user.username)
-        if not confirmed:
-            await call.message.answer("⚠️ Эта транзакция уже использована или платёж больше нельзя подтвердить. Обратись в поддержку.")
-            return
+    paid = False
+    
+    # Проверяем Tonkeeper
+    if cfg.ton_wallet:
+        ton_api = TonkeeperAPI(cfg.ton_wallet)
+        # Конвертируем Gram в TON (1 Gram = 1 TON)
+        paid = await ton_api.check_transaction(payment['memo'], payment['amount'])
+    
+    if paid:
+        # Подтверждаем оплату и выдаём доступ
+        db.confirm_payment_and_grant_access(payment_id, call.from_user.id)
+        
         caption = (
             "✅ <b>ПЛАТЁЖ ПОДТВЕРЖДЁН!</b>\n\n"
-            f"Доступ к OfferBot активирован на {cfg.access_duration_hours} часов!\n"
+            "Доступ к OfferBot активирован!\n"
             "Удачного ворка! Смотри инструкцию 📘"
         )
         success_keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -820,7 +802,7 @@ async def pay_check_callback(call: CallbackQuery):
         except Exception:
             pass
     else:
-        await call.message.answer("❌ Оплата пока не найдена. Если ты уже отправил TON, подожди немного и попробуй ещё раз")
+        await call.answer("❌ Оплата не найдена. Попробуйте позже.", show_alert=True)
 
 @dp.callback_query(F.data == "support_start")
 async def support_start_callback(call: CallbackQuery):
@@ -908,6 +890,23 @@ async def on_business_message(message: Message):
 
 @dp.message()
 async def on_message(message: Message):
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_payment_price:
+        raw = (message.text or "").strip().replace(",", ".")
+        if raw.lower() == "/cancel":
+            awaiting_payment_price.discard(cfg.owner_id)
+            await message.answer("Изменение цены отменено.", reply_markup=admin_keyboard())
+            return
+        try:
+            price = float(raw)
+            if not (0 < price <= 1000000):
+                raise ValueError
+        except ValueError:
+            await message.answer("Введите положительную сумму числом, например 5 или 7.5. Для отмены: /cancel")
+            return
+        db.set_setting("payment_price", str(price))
+        awaiting_payment_price.discard(cfg.owner_id)
+        await message.answer(f"Цена доступа изменена: <b>{price:g} TON</b>.", reply_markup=admin_keyboard())
+        return
     if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_banner:
         if (message.text or "").strip().lower() == "/cancel":
             awaiting_banner.discard(cfg.owner_id)
@@ -967,28 +966,33 @@ async def on_message(message: Message):
                 await message.answer("❌ Отправь корректный username, например <code>@username</code>. Для отмены: /cancel")
                 return
             try:
-                previous_account = db.find_user_by_username(username)
+                previous_account = db.find_access_user_by_username(username)
                 if not previous_account:
                     awaiting_access_recovery.discard(u.id)
-                    await message.answer("❌ Аккаунт не найден. Основной аккаунт должен хотя бы раз запустить бота.")
+                    await message.answer(
+                        "❌ Не удалось восстановить доступ.\n"
+                        "Аккаунт с таким username не найден среди пользователей, которым ранее выдавался доступ.\n"
+                        "Проверь username и попробуй ещё раз."
+                    )
                     return
-                primary_id = int(previous_account["user_id"])
-                if primary_id == u.id or not db.has_access(primary_id, cfg.owner_id, cfg.offer_access_mode):
+                if db.is_blocked(u.id):
                     awaiting_access_recovery.discard(u.id)
-                    await message.answer("❌ Это текущий аккаунт или у основного аккаунта нет активного доступа.")
+                    await message.answer("⛔ Для этого аккаунта доступ заблокирован. Обратись в поддержку.")
                     return
-                request_id = db.create_access_link_request(primary_id, u.id)
+                db.add_access(u.id)
+                connection = db.get_connection_for_user(u.id)
+                if connection:
+                    db.set_connection_blocked(connection["connection_id"], False)
                 awaiting_access_recovery.discard(u.id)
-                try:
-                    await bot.send_message(primary_id,
-                        f"🔐 <b>Запрос на привязку аккаунта</b>\\n\\nАккаунт @{u.username or 'без_username'} (ID <code>{u.id}</code>) хочет использовать вашу подписку.",
-                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                            InlineKeyboardButton(text="✅ Подтвердить привязку", callback_data=f"link:approve:{request_id}"),
-                            InlineKeyboardButton(text="❌ Отклонить", callback_data=f"link:reject:{request_id}")
-                        ]]))
-                    await message.answer("📨 Запрос отправлен на основной аккаунт. Доступ появится только после подтверждения.")
-                except Exception:
-                    await message.answer("⚠️ Не удалось отправить запрос основному аккаунту.")
+                await message.answer(
+                    "✅ <b>Доступ восстановлен!</b>\n\n"
+                    "Этот аккаунт теперь может пользоваться оферами.",
+                    reply_markup=main_menu_keyboard(u.id)
+                )
+                log.info(
+                    "ACCESS_RECOVERED current_user_id=%s verified_user_id=%s verified_username=%s",
+                    u.id, previous_account["user_id"], username
+                )
             except Exception:
                 log.exception("Access recovery failed for user_id=%s", u.id)
                 await message.answer("❌ Не удалось проверить доступ из-за ошибки базы. Попробуй позже.")
@@ -1117,43 +1121,6 @@ async def handle_text(message: Message, is_business: bool):
         except Exception as e:
             await reply_message(message, f"❌ Не удалось отправить ответ: {e}")
         return
-    if message.from_user and message.from_user.id == cfg.owner_id and low.startswith(("/grant ", "/grantforever ", "/revoke ")):
-        parts = text.split()
-        cmd = parts[0].lower()
-        if len(parts) < (3 if cmd == "/grant" else 2):
-            await reply_message(message, "Формат: /grant ID ЧАСЫ | /grantforever ID | /revoke ID")
-            return
-        target = parts[1]
-        found = db.find_user_by_username(target) if target.startswith("@") else None
-        try:
-            uid = int(target) if target.lstrip("-").isdigit() else int(found["user_id"]) if found else 0
-            if not uid: raise ValueError()
-            if uid == cfg.owner_id and cmd == "/revoke":
-                await reply_message(message, "Владельцу нельзя отозвать доступ.")
-                return
-            if cmd == "/grant":
-                hours = float(parts[2])
-                if hours <= 0: raise ValueError()
-                db.set_access(uid, username=(found or {}).get("username"), hours=hours, source="admin")
-                answer = f"✅ Выдан доступ на {hours:g} ч. пользователю <code>{uid}</code>."
-            elif cmd == "/grantforever":
-                db.set_access(uid, username=(found or {}).get("username"), permanent=True, source="admin")
-                answer = f"✅ Выдан бессрочный доступ пользователю <code>{uid}</code>."
-            else:
-                await admin_block(uid)
-                answer = f"✅ Доступ пользователя <code>{uid}</code> отозван."
-            await reply_message(message, answer)
-        except (ValueError, TypeError, KeyError):
-            await reply_message(message, "❌ Неверный пользователь или срок. Username должен быть известен боту.")
-        return
-    if low == "/accesslist" and message.from_user and message.from_user.id == cfg.owner_id:
-        rows = db.list_access_users("active", 50)
-        lines = ["<b>Активные доступы:</b>"]
-        for r in rows:
-            expiry = "навсегда" if r["is_permanent"] else str(r["expires_at"])
-            lines.append(f"<code>{r['user_id']}</code> @{r.get('username') or '—'} — {expiry}")
-        await reply_message(message, "\\n".join(lines)[:4000])
-        return
     if low.startswith("/allow ") and message.from_user and message.from_user.id == cfg.owner_id:
         target = text.split(maxsplit=1)[1].strip()
         if target.lstrip("@").isdigit():
@@ -1206,14 +1173,11 @@ async def set_transfer(message: Message, username: str):
 
 
 async def admin_allow(uid: int):
-    db.set_access(uid, permanent=True, source="admin"); db.unblock_offer_user(uid)
+    db.add_access(uid); db.unblock_offer_user(uid)
     for row in db.list_connections():
         if row["user_id"] == uid: db.set_connection_blocked(row["connection_id"], False)
 
 async def admin_block(uid: int):
-    if uid == cfg.owner_id:
-        return
-    db.revoke_access(uid, unlink=True)
     db.block_offer_user(uid)
     for row in db.list_connections():
         if row["user_id"] == uid: db.set_connection_blocked(row["connection_id"], True)
@@ -1233,7 +1197,7 @@ def admin_home_text():
             f"🔌 Активных Business-подключений: <b>{active_connections}</b>\n"
             f"🎁 Оферов сегодня: {today_total} · принято {today_accepted} ({conversion:.0f}%)\n"
             f"📦 Всего оферов: {sum(int(v) for v in offers.values())}\n"
-            "🆓 Доступ бесплатный для всех, кроме заблокированных пользователей.")
+            f"Текущая цена доступа: <b>{get_payment_price():g} TON</b>.")
 
 
 def admin_connections_text(offset: int = 0):
@@ -1260,6 +1224,16 @@ async def admin_callback(call: CallbackQuery):
     except ValueError:
         offset = 0
 
+    if action == "payment_price":
+        awaiting_payment_price.add(cfg.owner_id)
+        await call.answer()
+        await call.message.answer(
+            f"Текущая цена: <b>{get_payment_price():g} TON</b>\n\n"
+            "Отправьте новую цену числом в TON (например, 5 или 7.5).\n"
+            "Для отмены отправьте /cancel."
+        )
+        return
+
     if action == "banner":
         awaiting_banner.add(cfg.owner_id)
         await call.answer()
@@ -1278,44 +1252,8 @@ async def admin_callback(call: CallbackQuery):
                 f"🎁 Оферов сегодня: {today_total} · принято: {today_accepted} ({conversion:.0f}%)\n"
                 f"📦 Оферов всего: {sum(int(v) for v in offers.values())}\n"
                 f"🔌 Активных Business-подключений: {sum(1 for r in db.list_connections() if r['is_enabled'])}\n"
-                "🆓 Доступ открыт для всех.")
+                f"Текущая цена доступа: {get_payment_price():g} TON.")
         await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
-        await call.answer()
-        return
-    if action == "access_help":
-        text = ("<b>Управление доступом</b>\\n\\n"
-                "<code>/grant ID ЧАСЫ</code> — временный доступ\\n"
-                "<code>/grantforever ID</code> — бессрочный доступ\\n"
-                "<code>/revoke ID</code> — отозвать доступ\\n"
-                "<code>/accesslist</code> — список активных подписок\\n"
-                "Вместо ID можно указать @username.")
-        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
-        await call.answer()
-        return
-    if action == "access_users":
-        rows = db.list_access_users("active", 30, offset)
-        lines = ["<b>👥 Активный доступ</b>"]
-        for r in rows:
-            expiry = "навсегда" if r["is_permanent"] else (r["expires_at"].strftime("%d.%m.%Y %H:%M UTC") if r["expires_at"] else "—")
-            lines.append(f"• <code>{r['user_id']}</code> @{r.get('username') or '—'} · {expiry} · доп. аккаунтов: {r['linked_count']}")
-        if not rows: lines.append("Активных подписок нет.")
-        await call.message.edit_text("\\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
-        await call.answer()
-        return
-    if action == "revoke_all_confirm":
-        await call.message.edit_text("⚠️ <b>Подтвердить отзыв доступа у всех обычных пользователей?</b> История оплат и пользователи сохранятся. OWNER_ID не затрагивается.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🧹 Да, отозвать у всех", callback_data="adm:revoke_all:confirm")],
-                [InlineKeyboardButton(text="Отмена", callback_data="adm:home:0")]]))
-        await call.answer()
-        return
-    if action == "revoke_all" and len(parts) > 2 and parts[2] == "confirm":
-        with db.connect() as con, con.cursor() as cur:
-            cur.execute("UPDATE access_links SET is_active=FALSE")
-            cur.execute("DELETE FROM access_subscriptions WHERE user_id<>%s", (cfg.owner_id,))
-            cur.execute("DELETE FROM offer_access_users WHERE user_id<>%s", (cfg.owner_id,))
-            cur.execute("UPDATE offer_business_connections SET is_blocked=TRUE,updated_at=NOW() WHERE user_id<>%s", (cfg.owner_id,))
-        await call.message.edit_text("✅ Доступ обычных пользователей отозван. История пользователей и платежей сохранена.", reply_markup=admin_keyboard())
         await call.answer()
         return
     if action == "allow":
@@ -1500,32 +1438,14 @@ async def cleanup_job():
         try:
             deleted = db.cleanup_expired_offers()
             if deleted: log.info("Cleanup removed %s expired pending offers", deleted)
-            db.expire_access()
-        except Exception:
-            log.exception("Cleanup job failed")
+        except Exception: log.exception("Cleanup job failed")
         await asyncio.sleep(900)
-
-
-async def access_expiry_job():
-    while True:
-        try:
-            for row in db.get_expiring_access():
-                uid, expiry = int(row["user_id"]), row["expires_at"]
-                try:
-                    await bot.send_message(uid, "⏳ До окончания твоего доступа остался 1 час!\\n\\nПродли доступ, чтобы продолжить пользоваться OfferBot")
-                    db.mark_expiry_notified(uid, expiry)
-                except Exception:
-                    log.exception("Could not send expiry notice to %s", uid)
-        except Exception:
-            log.exception("Access expiry notifier failed")
-        await asyncio.sleep(300)
 
 
 async def main():
     asyncio.create_task(cleanup_job())
-    asyncio.create_task(access_expiry_job())
     for uid in cfg.offer_always_allowed_ids:
-        db.set_access(uid, hours=0, permanent=True, source="admin"); db.unblock_offer_user(uid)
+        db.add_access(uid); db.unblock_offer_user(uid)
     log.info("OfferBot starting; owner_id=%s database=%s", cfg.owner_id, "PostgreSQL")
     try:
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
