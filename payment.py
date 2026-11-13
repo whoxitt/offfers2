@@ -1,101 +1,91 @@
-"""Strict incoming TON transaction verification using the official TonAPI v2."""
+"""Проверка входящих платежей TON через TonAPI."""
+import asyncio
 import logging
-from typing import Optional
+from decimal import Decimal, InvalidOperation
+from typing import Any
+
 import aiohttp
 
 log = logging.getLogger("payment")
-NANO = 1_000_000_000
-
-
-class TonAPIError(RuntimeError):
-    pass
 
 
 class TonkeeperAPI:
+    """Проверяет входящие переводы на кошелёк магазина по сумме и memo."""
+
     def __init__(self, wallet_address: str, api_key: str = ""):
         self.wallet = wallet_address.strip()
-        self.api_key = api_key.strip()
         self.base_url = "https://tonapi.io/v2"
+        self.api_key = api_key.strip()
 
-    def _headers(self):
+    @staticmethod
+    def _message_text(in_msg: dict[str, Any]) -> str:
+        """TonAPI в разных версиях отдаёт комментарий в разных полях."""
+        candidates = [
+            in_msg.get("message"),
+            in_msg.get("comment"),
+        ]
+        decoded = in_msg.get("decoded_body") or in_msg.get("decodedBody") or {}
+        if isinstance(decoded, dict):
+            candidates.extend([decoded.get("text"), decoded.get("comment")])
+        msg_data = in_msg.get("msg_data") or {}
+        if isinstance(msg_data, dict):
+            candidates.extend([msg_data.get("text"), msg_data.get("comment")])
+            decoded_data = msg_data.get("decoded") or {}
+            if isinstance(decoded_data, dict):
+                candidates.extend([decoded_data.get("text"), decoded_data.get("comment")])
+        for candidate in candidates:
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        return ""
+
+    async def check_transaction(self, memo: str, expected_amount: float) -> bool:
+        """Проверяет свежую историю кошелька. Ошибки API не маскируются под отсутствие оплаты."""
+        url = f"{self.base_url}/blockchain/accounts/{self.wallet}/transactions"
         headers = {"Accept": "application/json"}
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
-        return headers
-
-    @staticmethod
-    def _comment(in_msg: dict) -> str:
-        decoded = in_msg.get("decoded_body") or {}
-        for value in (
-            decoded.get("text"), decoded.get("comment"),
-            in_msg.get("message"), in_msg.get("comment"),
-        ):
-            if value is not None:
-                return str(value).strip()
-        return ""
-
-    @staticmethod
-    def _hash(tx: dict) -> str:
-        txid = tx.get("transaction_id") or {}
-        return str(txid.get("hash") or tx.get("hash") or "").strip()
-
-    @staticmethod
-    def _same_address(a: str, b: str) -> bool:
-        # TonAPI may represent an address in raw or user-friendly form.
-        # Never compare usernames or transaction comments as an address substitute.
-        return str(a or "").strip() == str(b or "").strip()
-
-    async def find_payment(self, memo: str, expected_amount: float) -> Optional[str]:
-        if not self.wallet or not memo or expected_amount <= 0:
-            raise TonAPIError("Missing wallet, payment memo, or amount")
-        url = f"{self.base_url}/blockchain/accounts/{self.wallet}/transactions"
-        params = {"limit": 100}
-        timeout = aiohttp.ClientTimeout(total=20)
+        timeout = aiohttp.ClientTimeout(total=12, connect=5)
         try:
-            async with aiohttp.ClientSession(timeout=timeout, headers=self._headers()) as session:
-                async with session.get(url, params=params) as resp:
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get(url, params={"limit": 100}, headers=headers) as resp:
                     if resp.status != 200:
-                        raise TonAPIError(f"TonAPI returned HTTP {resp.status}")
-                    payload = await resp.json()
-        except TonAPIError:
+                        body = (await resp.text())[:500]
+                        log.error("TonAPI HTTP %s: %s", resp.status, body)
+                        raise RuntimeError(f"TonAPI вернул HTTP {resp.status}")
+                    data = await resp.json(content_type=None)
+
+            transactions = data.get("transactions", []) if isinstance(data, dict) else []
+            expected_memo = str(memo).strip()
+            expected = Decimal(str(expected_amount))
+            for tx in transactions:
+                in_msg = tx.get("in_msg") or {}
+                if not isinstance(in_msg, dict) or not in_msg:
+                    continue
+                actual_memo = self._message_text(in_msg)
+                if actual_memo != expected_memo:
+                    continue
+                raw_value = in_msg.get("value", 0)
+                try:
+                    actual_amount = Decimal(str(raw_value)) / Decimal("1000000000")
+                except (InvalidOperation, TypeError, ValueError):
+                    log.warning("Invalid TON value in transaction: %r", raw_value)
+                    continue
+                if actual_amount >= expected:
+                    log.info("TON payment found: memo=%s amount=%s TON", expected_memo, actual_amount)
+                    return True
+                log.warning("Memo matched but amount is too small: %s < %s TON", actual_amount, expected)
+            log.info("TON payment not found: memo=%s", expected_memo)
+            return False
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, RuntimeError):
+            log.exception("TonAPI payment check failed")
             raise
-        except Exception as exc:
-            raise TonAPIError("TonAPI request failed") from exc
 
-        txs = payload.get("transactions")
-        if not isinstance(txs, list):
-            raise TonAPIError("TonAPI response has no transaction list")
-        required_nano = int(round(float(expected_amount) * NANO))
-        for tx in txs:
-            if not isinstance(tx, dict):
-                continue
-            # Only finalized successful transactions with a complete inbound message.
-            if tx.get("success") is not True or tx.get("aborted") is True:
-                continue
-            msg = tx.get("in_msg")
-            if not isinstance(msg, dict) or not msg:
-                continue
-            destination = (msg.get("destination") or {})
-            destination_address = destination.get("address") if isinstance(destination, dict) else destination
-            if not self._same_address(destination_address, self.wallet):
-                continue
-            source = msg.get("source")
-            source_address = source.get("address") if isinstance(source, dict) else source
-            if not source_address:
-                continue
-            try:
-                value = int(msg.get("value"))
-            except (TypeError, ValueError):
-                continue
-            if value < required_nano:
-                continue
-            if self._comment(msg) != memo:
-                continue
-            tx_hash = self._hash(tx)
-            if not tx_hash:
-                continue
-            return tx_hash
-        return None
-
-    async def check_transaction(self, memo: str, expected_amount: float) -> bool:
-        return bool(await self.find_payment(memo, expected_amount))
+    async def wait_for_transaction(self, memo: str, expected_amount: float, timeout: int = 600) -> bool:
+        """Ожидание оплаты с повторной проверкой."""
+        loop = asyncio.get_running_loop()
+        start = loop.time()
+        while loop.time() - start < timeout:
+            if await self.check_transaction(memo, expected_amount):
+                return True
+            await asyncio.sleep(3)
+        return False

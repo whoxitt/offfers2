@@ -28,6 +28,7 @@ class Config:
     # Настройки оплаты
     payment_price: float = 150.0
     ton_wallet: str = ""
+    ton_api_key: str = ""
     access_duration_hours: float = 48.0
 
 
@@ -74,5 +75,6 @@ def load_config() -> Config:
         bot_username=os.getenv("BOT_USERNAME", "").strip().lstrip("@"),
         payment_price=float(os.getenv("PAYMENT_PRICE", "150")),
         ton_wallet=os.getenv("TON_WALLET", "").strip(),
+        ton_api_key=os.getenv("TON_API_KEY", "").strip(),
         access_duration_hours=float(os.getenv("ACCESS_DURATION_HOURS", "48")),
     )

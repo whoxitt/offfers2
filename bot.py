@@ -825,9 +825,14 @@ async def pay_check_callback(call: CallbackQuery):
     
     # Проверяем Tonkeeper
     if cfg.ton_wallet:
-        ton_api = TonkeeperAPI(cfg.ton_wallet)
-        # Конвертируем Gram в TON (1 Gram = 1 TON)
-        paid = await ton_api.check_transaction(payment['memo'], payment['amount'])
+        ton_api = TonkeeperAPI(cfg.ton_wallet, getattr(cfg, "ton_api_key", ""))
+        try:
+            # Проверяем напрямую по свежей истории входящих транзакций TON.
+            paid = await ton_api.check_transaction(payment['memo'], payment['amount'])
+        except Exception:
+            log.exception("TON payment verification unavailable for payment_id=%s", payment_id)
+            await call.answer("Не удалось проверить сеть TON. Попробуйте ещё раз через несколько секунд.", show_alert=True)
+            return
     
     if paid:
         # Подтверждаем оплату и выдаём доступ
@@ -856,7 +861,7 @@ async def pay_check_callback(call: CallbackQuery):
         except Exception:
             pass
     else:
-        await call.answer("❌ Оплата не найдена. Попробуйте позже.", show_alert=True)
+        await call.answer("Оплата не найдена", show_alert=True)
 
 @dp.callback_query(F.data == "support_start")
 async def support_start_callback(call: CallbackQuery):
@@ -1076,27 +1081,15 @@ async def on_message(message: Message):
                     [InlineKeyboardButton(text="Подтвердить привязку", callback_data=f"access_link_yes:{owner_uid}:{u.id}")],
                     [InlineKeyboardButton(text="Отклонить", callback_data=f"access_link_no:{owner_uid}:{u.id}")]
                 ])
-                try:
-                    await bot.send_message(owner_uid,
-                        f"Запрос на привязку дополнительного аккаунта: @{u.username or 'username не указан'}\nID: <code>{u.id}</code>\n\nРазрешить использовать вашу подписку?",
-                        reply_markup=kb)
-                except (TelegramBadRequest, TelegramForbiddenError) as send_error:
-                    # Telegram bots cannot initiate a private chat: the owner must open the bot and press Start first.
-                    log.warning("ACCESS_LINK_DELIVERY_FAILED child=%s owner=%s error=%s", u.id, owner_uid, send_error)
-                    await message.answer(
-                        "Не удалось отправить запрос владельцу подписки. Это не ошибка базы данных.\n\n"
-                        "Попроси владельца основного аккаунта открыть этого бота и нажать /start. "
-                        "Если он уже запускал бота, возможно, он заблокировал его — нужно разблокировать. "
-                        "После этого повтори привязку. До подтверждения владельцем доступ не выдаётся."
-                    )
-                    awaiting_access_recovery.discard(u.id)
-                    return
+                await bot.send_message(owner_uid,
+                    f"Запрос на привязку дополнительного аккаунта: @{u.username or 'username не указан'}\nID: <code>{u.id}</code>\n\nРазрешить использовать вашу подписку?",
+                    reply_markup=kb)
                 awaiting_access_recovery.discard(u.id)
                 await message.answer("Запрос отправлен на основной аккаунт. Доступ появится только после подтверждения владельцем.")
                 log.info("ACCESS_LINK_REQUEST child=%s owner=%s username=%s", u.id, owner_uid, username)
             except Exception:
                 log.exception("Access recovery failed for user_id=%s", u.id)
-                await message.answer("Не удалось обработать запрос на привязку. Проверь логи бота или попробуй позже.")
+                await message.answer("❌ Не удалось проверить доступ из-за ошибки базы. Попробуй позже.")
             return
         if u.id in awaiting_support:
             if (message.text or "").strip().lower() == "/cancel":
