@@ -1076,15 +1076,27 @@ async def on_message(message: Message):
                     [InlineKeyboardButton(text="Подтвердить привязку", callback_data=f"access_link_yes:{owner_uid}:{u.id}")],
                     [InlineKeyboardButton(text="Отклонить", callback_data=f"access_link_no:{owner_uid}:{u.id}")]
                 ])
-                await bot.send_message(owner_uid,
-                    f"Запрос на привязку дополнительного аккаунта: @{u.username or 'username не указан'}\nID: <code>{u.id}</code>\n\nРазрешить использовать вашу подписку?",
-                    reply_markup=kb)
+                try:
+                    await bot.send_message(owner_uid,
+                        f"Запрос на привязку дополнительного аккаунта: @{u.username or 'username не указан'}\nID: <code>{u.id}</code>\n\nРазрешить использовать вашу подписку?",
+                        reply_markup=kb)
+                except (TelegramBadRequest, TelegramForbiddenError) as send_error:
+                    # Telegram bots cannot initiate a private chat: the owner must open the bot and press Start first.
+                    log.warning("ACCESS_LINK_DELIVERY_FAILED child=%s owner=%s error=%s", u.id, owner_uid, send_error)
+                    await message.answer(
+                        "Не удалось отправить запрос владельцу подписки. Это не ошибка базы данных.\n\n"
+                        "Попроси владельца основного аккаунта открыть этого бота и нажать /start. "
+                        "Если он уже запускал бота, возможно, он заблокировал его — нужно разблокировать. "
+                        "После этого повтори привязку. До подтверждения владельцем доступ не выдаётся."
+                    )
+                    awaiting_access_recovery.discard(u.id)
+                    return
                 awaiting_access_recovery.discard(u.id)
                 await message.answer("Запрос отправлен на основной аккаунт. Доступ появится только после подтверждения владельцем.")
                 log.info("ACCESS_LINK_REQUEST child=%s owner=%s username=%s", u.id, owner_uid, username)
             except Exception:
                 log.exception("Access recovery failed for user_id=%s", u.id)
-                await message.answer("❌ Не удалось проверить доступ из-за ошибки базы. Попробуй позже.")
+                await message.answer("Не удалось обработать запрос на привязку. Проверь логи бота или попробуй позже.")
             return
         if u.id in awaiting_support:
             if (message.text or "").strip().lower() == "/cancel":
