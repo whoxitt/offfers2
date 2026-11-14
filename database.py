@@ -111,7 +111,11 @@ class Database:
         "CREATE INDEX IF NOT EXISTS idx_offers_buyer ON gift_offers(buyer_id)",
         "CREATE INDEX IF NOT EXISTS idx_payments_memo ON payments(memo)",
         "CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id)",
-        "CREATE INDEX IF NOT EXISTS idx_bot_users_updated ON bot_users(updated_at)"
+        "CREATE INDEX IF NOT EXISTS idx_bot_users_updated ON bot_users(updated_at)",
+        """CREATE TABLE IF NOT EXISTS admin_audit (
+            id BIGSERIAL PRIMARY KEY, admin_id BIGINT NOT NULL, action TEXT NOT NULL,
+            target_user_id BIGINT, details TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at DESC)"
         ]
         with self.connect() as con:
             with con.cursor() as cur:
@@ -522,3 +526,148 @@ class Database:
                 FROM payments""")
             row = cur.fetchone()
             return {k: (float(v) if k in {'paid_amount','amount_today'} else int(v or 0)) for k,v in row.items()}
+
+
+    def log_admin_action(self, admin_id: int, action: str, target_user_id: int | None = None, details: str = ""):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("INSERT INTO admin_audit(admin_id,action,target_user_id,details) VALUES(%s,%s,%s,%s)",
+                        (admin_id, action[:100], target_user_id, details[:1000]))
+
+    def recent_admin_actions(self, limit: int = 10):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT admin_id,action,target_user_id,details,created_at FROM admin_audit ORDER BY created_at DESC LIMIT %s", (max(1,min(int(limit),30)),))
+            return cur.fetchall()
+
+    def admin_dashboard(self, days: int = 0):
+        """Aggregated admin metrics. days=0 means all-time totals."""
+        days = max(0, min(int(days), 3650))
+        interval = f"{days} days" if days else None
+        with self.connect() as con, con.cursor() as cur:
+            if interval:
+                cur.execute("""SELECT COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE status='accepted') AS accepted,
+                    COUNT(*) FILTER (WHERE status='declined') AS declined,
+                    COUNT(*) FILTER (WHERE status='expired') AS expired,
+                    COUNT(*) FILTER (WHERE status='pending') AS pending
+                    FROM gift_offers WHERE created_at >= NOW()-(%s::interval)""", (interval,))
+            else:
+                cur.execute("""SELECT COUNT(*) AS total,
+                    COUNT(*) FILTER (WHERE status='accepted') AS accepted,
+                    COUNT(*) FILTER (WHERE status='declined') AS declined,
+                    COUNT(*) FILTER (WHERE status='expired') AS expired,
+                    COUNT(*) FILTER (WHERE status='pending') AS pending FROM gift_offers""")
+            offers = {k: int(v or 0) for k,v in cur.fetchone().items()}
+            if interval:
+                cur.execute("SELECT COUNT(*) AS c FROM bot_users WHERE created_at >= NOW()-(%s::interval)", (interval,))
+                new_users = int(cur.fetchone()['c'] or 0)
+            else:
+                cur.execute("SELECT COUNT(*) AS c FROM bot_users")
+                new_users = int(cur.fetchone()['c'] or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM offer_access_users WHERE expires_at IS NULL OR expires_at>NOW()")
+            active_access = int(cur.fetchone()['c'] or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM offer_business_connections WHERE is_enabled=TRUE")
+            active_connections = int(cur.fetchone()['c'] or 0)
+            if interval:
+                cur.execute("""SELECT COUNT(*) FILTER (WHERE status='paid') AS paid,
+                    COUNT(*) FILTER (WHERE status='pending') AS pending,
+                    COALESCE(SUM(amount) FILTER (WHERE status='paid'),0) AS revenue
+                    FROM payments WHERE (status='paid' AND paid_at >= NOW()-(%s::interval)) OR (status='pending' AND created_at >= NOW()-(%s::interval))""", (interval, interval))
+            else:
+                cur.execute("""SELECT COUNT(*) FILTER (WHERE status='paid') AS paid,
+                    COUNT(*) FILTER (WHERE status='pending') AS pending,
+                    COALESCE(SUM(amount) FILTER (WHERE status='paid'),0) AS revenue FROM payments""")
+            payments = cur.fetchone()
+            cur.execute("SELECT COUNT(*) AS c FROM referrals WHERE referred_by IS NOT NULL")
+            referrals = int(cur.fetchone()['c'] or 0)
+            cur.execute("SELECT COUNT(*) AS c FROM referral_rewards")
+            referral_rewards = int(cur.fetchone()['c'] or 0)
+            return {'offers': offers, 'new_users': new_users, 'active_access': active_access,
+                    'active_connections': active_connections, 'paid': int(payments['paid'] or 0),
+                    'pending_payments': int(payments['pending'] or 0), 'revenue': float(payments['revenue'] or 0),
+                    'referrals': referrals, 'referral_rewards': referral_rewards}
+
+    def admin_users(self, query: str = '', limit: int = 8, offset: int = 0):
+        query = (query or '').strip().lstrip('@').lower()
+        limit, offset = max(1, min(int(limit), 20)), max(0, int(offset))
+        with self.connect() as con, con.cursor() as cur:
+            if query.isdigit():
+                cur.execute("""SELECT u.user_id,u.username,u.first_name,u.created_at,
+                    (EXISTS(SELECT 1 FROM offer_access_users a WHERE a.user_id=u.user_id AND (a.expires_at IS NULL OR a.expires_at>NOW()))
+                     OR EXISTS(SELECT 1 FROM offer_access_links l JOIN offer_access_users a ON a.user_id=l.owner_user_id
+                               WHERE l.child_user_id=u.user_id AND (a.expires_at IS NULL OR a.expires_at>NOW()))) AS has_access,
+                    CASE WHEN EXISTS(SELECT 1 FROM offer_access_users a WHERE a.user_id=u.user_id)
+                         THEN (SELECT expires_at FROM offer_access_users a WHERE a.user_id=u.user_id)
+                         ELSE (SELECT a.expires_at FROM offer_access_links l JOIN offer_access_users a ON a.user_id=l.owner_user_id WHERE l.child_user_id=u.user_id) END AS expires_at
+                    FROM bot_users u WHERE u.user_id=%s ORDER BY u.created_at DESC LIMIT %s OFFSET %s""", (int(query),limit,offset))
+            else:
+                cur.execute("""SELECT u.user_id,u.username,u.first_name,u.created_at,
+                    (EXISTS(SELECT 1 FROM offer_access_users a WHERE a.user_id=u.user_id AND (a.expires_at IS NULL OR a.expires_at>NOW()))
+                     OR EXISTS(SELECT 1 FROM offer_access_links l JOIN offer_access_users a ON a.user_id=l.owner_user_id
+                               WHERE l.child_user_id=u.user_id AND (a.expires_at IS NULL OR a.expires_at>NOW()))) AS has_access,
+                    CASE WHEN EXISTS(SELECT 1 FROM offer_access_users a WHERE a.user_id=u.user_id)
+                         THEN (SELECT expires_at FROM offer_access_users a WHERE a.user_id=u.user_id)
+                         ELSE (SELECT a.expires_at FROM offer_access_links l JOIN offer_access_users a ON a.user_id=l.owner_user_id WHERE l.child_user_id=u.user_id) END AS expires_at
+                    FROM bot_users u WHERE (%s='' OR LOWER(COALESCE(u.username,'')) LIKE %s OR LOWER(COALESCE(u.first_name,'')) LIKE %s)
+                    ORDER BY u.created_at DESC LIMIT %s OFFSET %s""", (query, f'%{query}%', f'%{query}%',limit,offset))
+            return cur.fetchall()
+
+    def admin_user_detail(self, user_id: int):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""SELECT u.user_id,u.username,u.first_name,u.last_name,u.created_at,u.is_blocked,
+                CASE WHEN a.user_id IS NOT NULL THEN a.expires_at
+                     ELSE (SELECT a2.expires_at FROM offer_access_links l JOIN offer_access_users a2 ON a2.user_id=l.owner_user_id WHERE l.child_user_id=u.user_id) END AS expires_at,
+                CASE WHEN a.user_id IS NOT NULL THEN a.source
+                     ELSE (SELECT a2.source FROM offer_access_links l JOIN offer_access_users a2 ON a2.user_id=l.owner_user_id WHERE l.child_user_id=u.user_id) END AS source,
+                (SELECT COUNT(*) FROM gift_offers o WHERE o.seller_id=u.user_id OR o.buyer_id=u.user_id) AS offers,
+                (SELECT COUNT(*) FROM payments p WHERE p.user_id=u.user_id AND p.status='paid') AS paid_count,
+                (SELECT COALESCE(SUM(p.amount),0) FROM payments p WHERE p.user_id=u.user_id AND p.status='paid') AS paid_sum,
+                (SELECT COUNT(*) FROM referrals r WHERE r.referred_by=u.user_id) AS referrals,
+                (SELECT COUNT(*) FROM offer_business_connections c WHERE c.user_id=u.user_id AND c.is_enabled=TRUE) AS connections,
+                EXISTS(SELECT 1 FROM offer_blocked_users b WHERE b.user_id=u.user_id) AS offer_blocked
+                FROM bot_users u LEFT JOIN offer_access_users a ON a.user_id=u.user_id WHERE u.user_id=%s""", (user_id,))
+            return cur.fetchone()
+
+    def admin_offers(self, status: str = 'all', limit: int = 8, offset: int = 0):
+        limit, offset = max(1,min(int(limit),20)), max(0,int(offset))
+        with self.connect() as con, con.cursor() as cur:
+            if status == 'all':
+                cur.execute("SELECT id,seller_id,buyer_id,gift_name,gift_number,amount,currency,status,created_at FROM gift_offers ORDER BY created_at DESC LIMIT %s OFFSET %s", (limit,offset))
+            else:
+                cur.execute("SELECT id,seller_id,buyer_id,gift_name,gift_number,amount,currency,status,created_at FROM gift_offers WHERE status=%s ORDER BY created_at DESC LIMIT %s OFFSET %s", (status,limit,offset))
+            return cur.fetchall()
+
+    def expiring_access(self, hours: int = 24, limit: int = 8, offset: int = 0):
+        hours = max(1, min(int(hours), 720))
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""SELECT a.user_id,a.expires_at,u.username,u.first_name
+                FROM offer_access_users a LEFT JOIN bot_users u ON u.user_id=a.user_id
+                WHERE a.expires_at IS NOT NULL AND a.expires_at>NOW()
+                  AND a.expires_at<=NOW()+(%s * INTERVAL '1 hour')
+                ORDER BY a.expires_at ASC LIMIT %s OFFSET %s""", (hours,max(1,min(int(limit),20)),max(0,int(offset))))
+            return cur.fetchall()
+
+    def admin_payments(self, limit: int = 8, offset: int = 0):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT id,user_id,amount,status,provider,created_at,paid_at,memo FROM payments ORDER BY created_at DESC LIMIT %s OFFSET %s", (max(1,min(int(limit),20)),max(0,int(offset))))
+            return cur.fetchall()
+
+    def admin_referrals(self, limit: int = 8, offset: int = 0):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""SELECT x.referred_by AS referrer_id,COUNT(*) AS invited,
+                COUNT(rr.id) AS paid_invites,COALESCE(SUM(rr.amount),0) AS rewards
+                FROM referrals x LEFT JOIN referral_rewards rr ON rr.referred_id=x.user_id
+                WHERE x.referred_by IS NOT NULL GROUP BY x.referred_by
+                ORDER BY paid_invites DESC, invited DESC LIMIT %s OFFSET %s""", (max(1,min(int(limit),20)),max(0,int(offset))))
+            return cur.fetchall()
+
+    def admin_system_stats(self):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS users FROM bot_users")
+            users = int(cur.fetchone()['users'] or 0)
+            cur.execute("SELECT COUNT(*) AS offers FROM gift_offers")
+            offers = int(cur.fetchone()['offers'] or 0)
+            cur.execute("SELECT COUNT(*) AS payments FROM payments")
+            payments = int(cur.fetchone()['payments'] or 0)
+            cur.execute("SELECT COUNT(*) AS pending FROM payments WHERE status='pending'")
+            pending = int(cur.fetchone()['pending'] or 0)
+            return {'users':users,'offers':offers,'payments':payments,'pending_payments':pending}

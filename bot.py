@@ -2,6 +2,8 @@ import asyncio
 import logging
 import html
 import uuid
+import csv
+import io
 from datetime import datetime, timezone
 
 from aiogram import Bot, Dispatcher, F
@@ -10,7 +12,7 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError, TelegramRetryAfter
 from aiogram.filters import Command
 from aiogram.types import (CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup,
-                           LinkPreviewOptions, Message, BusinessConnection)
+                           LinkPreviewOptions, Message, BusinessConnection, BufferedInputFile)
 
 from config import load_config
 from database import Database
@@ -33,6 +35,11 @@ awaiting_access_grant = set()
 awaiting_support = set()
 awaiting_banner = set()
 awaiting_profile_change = {}  # {admin_user_id: target_user_id}
+awaiting_admin_search = set()
+awaiting_referral_hours = set()
+awaiting_access_duration = set()
+admin_user_queries = {}
+admin_offer_filters = {}
 awaiting_access_recovery = set()  # users currently entering a previously authorized username
 pending_access_usernames = {}  # child Telegram ID -> username entered for access recovery
 
@@ -43,6 +50,14 @@ def get_payment_price() -> float:
         return float(db.get_setting("payment_price", str(cfg.payment_price)))
     except (TypeError, ValueError):
         return cfg.payment_price
+
+
+def get_access_duration_hours() -> float:
+    try:
+        value = float(db.get_setting("access_duration_hours", str(cfg.access_duration_hours)))
+        return value if 1 <= value <= 8760 else cfg.access_duration_hours
+    except (TypeError, ValueError):
+        return cfg.access_duration_hours
 
 
 def display_name(user) -> str:
@@ -139,15 +154,14 @@ def purchase_success_keyboard():
 
 def admin_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Доступы", callback_data="adm:access:0")],
-        [InlineKeyboardButton(text="Статистика", callback_data="adm:stats:0")],
-        [InlineKeyboardButton(text="Изменить баннер", callback_data="adm:banner:0")],
-        [InlineKeyboardButton(text="Подключения", callback_data="adm:connections:0"),
-         InlineKeyboardButton(text="Рассылка", callback_data="adm:broadcast:0")],
-        [InlineKeyboardButton(text="Изменить профиль кнопки 'Передать'", callback_data="adm:change_profile:0")],
+        [InlineKeyboardButton(text="Статистика", callback_data="adm:stats:0"), InlineKeyboardButton(text="Оферы", callback_data="adm:offers:0")],
+        [InlineKeyboardButton(text="Пользователи", callback_data="adm:users:0"), InlineKeyboardButton(text="Оплаты", callback_data="adm:payments:0")],
+        [InlineKeyboardButton(text="Рефералы", callback_data="adm:referrals:0"), InlineKeyboardButton(text="Доступы", callback_data="adm:access:0")],
+        [InlineKeyboardButton(text="Подключения", callback_data="adm:connections:0"), InlineKeyboardButton(text="Настройки", callback_data="adm:settings:0")],
+        [InlineKeyboardButton(text="Рассылка", callback_data="adm:broadcast:0"), InlineKeyboardButton(text="Журналы", callback_data="adm:system:0")],
+        [InlineKeyboardButton(text="Баннер", callback_data="adm:banner:0"), InlineKeyboardButton(text="Профиль передачи", callback_data="adm:change_profile:0")],
         [InlineKeyboardButton(text="Обновить", callback_data="adm:home:0")],
     ])
-
 
 
 
@@ -773,7 +787,7 @@ async def show_payment_options(message: Message, user_id: int, payment: dict):
     text = (
         "<b>Оплата доступа</b>\n\n"
         f"Стоимость: <b>{amount:g} TON</b>\n"
-        f"Срок доступа: <b>{cfg.access_duration_hours:g} часов</b>\n\n"
+        f"Срок доступа: <b>{get_access_duration_hours():g} часов</b>\n\n"
         "Выберите способ оплаты:"
     )
     
@@ -890,8 +904,12 @@ async def pay_check_callback(call: CallbackQuery):
     
     if paid:
         # Одной транзакцией подтверждаем оплату, выдаём доступ и начисляем 24 часа пригласившему.
+        try:
+            referral_hours = float(db.get_setting("referral_reward_hours", "24"))
+        except (TypeError, ValueError):
+            referral_hours = 24.0
         referrer_id = db.confirm_payment_access_and_reward_referrer(
-            payment_id, call.from_user.id, cfg.access_duration_hours, 24.0
+            payment_id, call.from_user.id, get_access_duration_hours(), referral_hours
         )
         if referrer_id is None:
             # None также возвращается при повторной проверке; проверяем статус платежа,
@@ -903,7 +921,7 @@ async def pay_check_callback(call: CallbackQuery):
 
         caption = (
             "Платёж подтверждён!\n\n"
-            f"Доступ к OfferBot активирован на {cfg.access_duration_hours:g} часов.\n"
+            f"Доступ к OfferBot активирован на {get_access_duration_hours():g} часов.\n"
             "Удачного пользования!"
         )
         success_keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -915,7 +933,7 @@ async def pay_check_callback(call: CallbackQuery):
             try:
                 await bot.send_message(
                     referrer_id,
-                    "Ваш приглашённый пользователь оплатил доступ. Вам начислено 24 часа доступа."
+                    f"Ваш приглашённый пользователь оплатил доступ. Вам начислено {referral_hours:g} часов доступа."
                 )
             except Exception:
                 log.exception("Could not notify referrer user_id=%s", referrer_id)
@@ -977,6 +995,7 @@ async def on_business_connection(bc: BusinessConnection):
     previous = db.get_business_connection(bc.id)
     should_notify = bc.is_enabled and (previous is None or not previous["is_enabled"])
     db.upsert_business_connection(bc.id, bc.user.id, bc.user.username, bc.user.first_name, bc.user.last_name, bc.is_enabled)
+    db.register_user(bc.user.id, bc.user.username, bc.user.first_name, bc.user.last_name)
     log.info("Business connection id=%s user_id=%s enabled=%s", bc.id, bc.user.id, bc.is_enabled)
     
     # Уведомляем администратора о новом подключении
@@ -1020,6 +1039,53 @@ async def on_business_message(message: Message):
 
 @dp.message()
 async def on_message(message: Message):
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_admin_search:
+        raw = (message.text or "").strip()
+        if raw.lower() == "/cancel":
+            awaiting_admin_search.discard(cfg.owner_id)
+            await message.answer("Поиск отменён.", reply_markup=admin_keyboard())
+            return
+        admin_user_queries[cfg.owner_id] = raw
+        awaiting_admin_search.discard(cfg.owner_id)
+        text, markup = admin_users_view(0)
+        await message.answer(text, reply_markup=markup)
+        return
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_access_duration:
+        raw = (message.text or "").strip().replace(",", ".")
+        if raw.lower() == "/cancel":
+            awaiting_access_duration.discard(cfg.owner_id)
+            await message.answer("Изменение срока доступа отменено.", reply_markup=admin_keyboard())
+            return
+        try:
+            hours = float(raw)
+            if not (1 <= hours <= 8760):
+                raise ValueError
+        except ValueError:
+            await message.answer("Введите число от 1 до 8760 часов. Например: 48. Для отмены: /cancel")
+            return
+        db.set_setting("access_duration_hours", str(hours))
+        db.log_admin_action(cfg.owner_id, "change_access_duration", None, f"hours={hours:g}")
+        awaiting_access_duration.discard(cfg.owner_id)
+        await message.answer(f"Срок доступа изменён: {hours:g} часов.", reply_markup=admin_keyboard())
+        return
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_referral_hours:
+        raw = (message.text or "").strip().replace(",", ".")
+        if raw.lower() == "/cancel":
+            awaiting_referral_hours.discard(cfg.owner_id)
+            await message.answer("Изменение бонуса отменено.", reply_markup=admin_keyboard())
+            return
+        try:
+            hours = float(raw)
+            if not (1 <= hours <= 8760):
+                raise ValueError
+        except ValueError:
+            await message.answer("Введите число от 1 до 8760. Например: 24. Для отмены: /cancel")
+            return
+        db.set_setting("referral_reward_hours", str(hours))
+        db.log_admin_action(cfg.owner_id, "change_referral_reward_hours", None, f"hours={hours:g}")
+        awaiting_referral_hours.discard(cfg.owner_id)
+        await message.answer(f"Реферальный бонус изменён: {hours:g} часов.", reply_markup=admin_keyboard())
+        return
     if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_access_grant:
         raw = (message.text or "").strip()
         if raw.lower() == "/cancel":
@@ -1047,6 +1113,7 @@ async def on_message(message: Message):
                 return
             uid = int(found["user_id"])
         db.grant_timed_access(uid, hours, "admin")
+        db.log_admin_action(cfg.owner_id, "grant_timed_access", uid, f"hours={hours:g}")
         awaiting_access_grant.discard(cfg.owner_id)
         try:
             await bot.send_message(uid, f"Вам выдан доступ к OfferBot на {hours:g} часов.")
@@ -1068,6 +1135,7 @@ async def on_message(message: Message):
             await message.answer("Введите положительную сумму числом, например 5 или 7.5. Для отмены: /cancel")
             return
         db.set_setting("payment_price", str(price))
+        db.log_admin_action(cfg.owner_id, "change_payment_price", None, f"price={price:g} TON")
         awaiting_payment_price.discard(cfg.owner_id)
         await message.answer(f"Цена доступа изменена: <b>{price:g} TON</b>.", reply_markup=admin_keyboard())
         return
@@ -1303,7 +1371,7 @@ async def handle_text(message: Message, is_business: bool):
         return
     if low == "/broadcast" and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         awaiting_broadcast.add(cfg.owner_id)
-        await reply_message(message, "📣 <b>Рассылка включена</b>\nОтправь текст, фото, видео или GIF. Для отмены: /cancel")
+        await reply_message(message, "<b>Рассылка</b>\nОтправьте текст, фото, видео или GIF. Для отмены: /cancel")
         return
     if low.startswith("/transfer ") or low.startswith("/передача "):
         await set_transfer(message, text.split(maxsplit=1)[1].strip())
@@ -1330,14 +1398,14 @@ async def handle_text(message: Message, is_business: bool):
                 return
             uid = int(found['user_id'])
         await admin_allow(uid)
-        try: await bot.send_message(uid, "🟢 Вам выдан доступ к OfferBot!")
+        try: await bot.send_message(uid, "Вам выдан доступ к OfferBot.")
         except Exception: pass
-        await reply_message(message, f"🟢 Доступ выдан пользователю <code>{uid}</code>.")
+        await reply_message(message, f"Доступ выдан пользователю <code>{uid}</code>.")
         return
     if low.startswith("/block ") and message.from_user and message.from_user.id == cfg.owner_id:
-        await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "🔴 Пользователь заблокирован."); return
+        await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "Пользователь заблокирован."); return
     if low.startswith("/unblock ") and message.from_user and message.from_user.id == cfg.owner_id:
-        uid=int(text.split(maxsplit=1)[1]); db.unblock_offer_user(uid); await reply_message(message, "🟢 Блокировка снята."); return
+        uid=int(text.split(maxsplit=1)[1]); db.unblock_offer_user(uid); await reply_message(message, "Блокировка снята."); return
     if low.startswith("/setprofile ") and message.from_user and message.from_user.id == cfg.owner_id:
         parts = text.split(maxsplit=2)
         if len(parts) < 3:
@@ -1372,42 +1440,90 @@ async def set_transfer(message: Message, username: str):
 
 async def admin_allow(uid: int):
     db.add_access(uid); db.unblock_offer_user(uid)
+    db.log_admin_action(cfg.owner_id, "grant_permanent_access", uid)
     for row in db.list_connections():
         if row["user_id"] == uid: db.set_connection_blocked(row["connection_id"], False)
 
 async def admin_block(uid: int):
     db.block_offer_user(uid)
+    db.log_admin_action(cfg.owner_id, "block_user", uid)
     for row in db.list_connections():
         if row["user_id"] == uid: db.set_connection_blocked(row["connection_id"], True)
 
 async def admin_command(message: Message):
     if not message.from_user or message.from_user.id != cfg.owner_id:
-        await reply_message(message, "⛔ Нет доступа.")
+        await reply_message(message, "Нет доступа.")
         return
     await reply_message(message, admin_home_text(), reply_markup=admin_keyboard())
 
 
 def admin_home_text():
-    offers = db.stats()
-    today_total, today_accepted, conversion = db.daily_offer_stats()
-    active_connections = sum(1 for r in db.list_connections() if r["is_enabled"])
-    return ("<b>⚙️ OfferBot · Админка</b>\n\n"
-            f"🔌 Активных Business-подключений: <b>{active_connections}</b>\n"
-            f"🎁 Оферов сегодня: {today_total} · принято {today_accepted} ({conversion:.0f}%)\n"
-            f"📦 Всего оферов: {sum(int(v) for v in offers.values())}\n"
-            f"Текущая цена доступа: <b>{get_payment_price():g} TON</b>.")
+    data = db.admin_dashboard(0)
+    offers = data['offers']
+    today_offers, today_accepted, _ = db.daily_offer_stats()
+    payment_today = db.payment_stats()
+    return (
+        "<b>OfferBot — панель управления</b>\n\n"
+        f"Пользователи: <b>{db.total_users()}</b>\n"
+        f"Активный доступ: <b>{data['active_access']}</b>\n"
+        f"Оферы: <b>{offers['total']}</b>\nСегодня: <b>{today_offers}</b> · принято: <b>{today_accepted}</b>\n"
+        f"Оплаты: <b>{data['paid']}</b> · всего: <b>{data['revenue']:.2f} TON</b>\n"
+        f"Сегодня оплат: <b>{payment_today['paid_today']}</b> · <b>{payment_today['amount_today']:.2f} TON</b>\n"
+        f"Приглашения: <b>{data['referrals']}</b> · успешные: <b>{data['referral_rewards']}</b>\n\n"
+        "Выберите раздел."
+    )
+
+
+def admin_back_keyboard(target="home"):
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад", callback_data=f"adm:{target}:0")]])
 
 
 def admin_connections_text(offset: int = 0):
     rows = db.list_connections()[max(0, offset):max(0, offset)+8]
-    lines = ["<b>🔌 Business-подключения</b>", "Кнопками можно выдать или заблокировать доступ.", ""]
+    lines = ["<b>Business-подключения</b>", ""]
     if not rows:
         lines.append("Подключений пока нет.")
     for r in rows:
-        enabled = "🟢" if r['is_enabled'] else "⚪"
-        name = (r.get('first_name') or "Пользователь").replace("<", "&lt;").replace(">", "&gt;")
-        lines.append(f"{enabled} {name} · <code>{r['user_id']}</code>")
+        state = "Активно" if r['is_enabled'] else "Отключено"
+        name = html.escape(r.get('first_name') or "Пользователь")
+        lines.append(f"{name} · <code>{r['user_id']}</code> · {state}")
     return "\n".join(lines), len(rows) == 8
+
+
+def admin_users_view(offset=0):
+    query = admin_user_queries.get(cfg.owner_id, "")
+    rows = db.admin_users(query, 8, offset)
+    lines = ["<b>Пользователи</b>", f"Поиск: <code>{html.escape(query or 'не задан')}</code>", ""]
+    buttons = []
+    for r in rows:
+        name = html.escape((r.get('first_name') or r.get('username') or 'Пользователь')[:24])
+        state = "доступ активен" if r['has_access'] else "без доступа"
+        lines.append(f"{name} · <code>{r['user_id']}</code> · {state}")
+        buttons.append([InlineKeyboardButton(text=f"{name[:18]} · {r['user_id']}", callback_data=f"adm:user:{r['user_id']}")])
+    if not rows:
+        lines.append("Пользователи не найдены.")
+    nav=[]
+    if offset: nav.append(InlineKeyboardButton(text="Предыдущая", callback_data=f"adm:users:{max(0,offset-8)}"))
+    if len(rows)==8: nav.append(InlineKeyboardButton(text="Следующая", callback_data=f"adm:users:{offset+8}"))
+    if nav: buttons.append(nav)
+    buttons += [[InlineKeyboardButton(text="Поиск", callback_data="adm:usersearch:0")], [InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def admin_user_detail_text(row):
+    if not row:
+        return "Пользователь не найден."
+    name = html.escape(" ".join(x for x in [row.get('first_name'), row.get('last_name')] if x) or "Пользователь")
+    expiry = row.get('expires_at')
+    if expiry is None:
+        access = "Бессрочно" if db.has_access(int(row['user_id']), cfg.owner_id, cfg.offer_access_mode) else "Нет активного доступа"
+    else:
+        access = expiry.strftime('%d.%m.%Y %H:%M UTC') if expiry else "Нет доступа"
+    return (f"<b>{name}</b>\nID: <code>{row['user_id']}</code>\nUsername: @{html.escape(row.get('username') or 'не указан')}\n"
+            f"Регистрация: {row['created_at'].strftime('%d.%m.%Y') if row.get('created_at') else '—'}\n"
+            f"Доступ: <b>{access}</b>\nИсточник доступа: {html.escape(row.get('source') or '—')}\n"
+            f"Оферы: {row['offers']}\nОплаты: {row['paid_count']} на {float(row['paid_sum'] or 0):.2f} TON\n"
+            f"Приглашено: {row['referrals']}\nBusiness-подключения: {row['connections']}\nБлокировка оферов: {'Да' if row['offer_blocked'] else 'Нет'}")
 
 
 @dp.callback_query(F.data.startswith("adm:"))
@@ -1417,10 +1533,228 @@ async def admin_callback(call: CallbackQuery):
         return
     parts = call.data.split(":", 2)
     action = parts[1] if len(parts) > 1 else "home"
+    raw_arg = parts[2] if len(parts) > 2 else "0"
     try:
-        offset = max(0, int(parts[2])) if len(parts) > 2 else 0
+        offset = max(0, int(raw_arg))
     except ValueError:
         offset = 0
+
+    if action == "stats":
+        days = offset if offset in (7, 30) else 0
+        data = db.admin_dashboard(days)
+        o = data['offers']
+        period = "за всё время" if not days else f"за {days} дней"
+        total = o['total']
+        accepted_pct = (o['accepted'] / total * 100) if total else 0
+        text = (f"<b>Статистика · {period}</b>\n\n"
+                f"Оферы: <b>{total}</b>\nПриняты: {o['accepted']} ({accepted_pct:.1f}%)\n"
+                f"Отклонены: {o['declined']}\nИстекли: {o['expired']}\nОжидают: {o['pending']}\n\n"
+                f"Новые пользователи: <b>{data['new_users']}</b>\nАктивный доступ: <b>{data['active_access']}</b>\n"
+                f"Business-подключения: {data['active_connections']}\n\n"
+                f"Оплачено: <b>{data['paid']}</b>\nОжидают оплаты: {data['pending_payments']}\n"
+                f"Получено: <b>{data['revenue']:.2f} TON</b>\n\n"
+                f"Приглашения: {data['referrals']}\nНачислено бонусов: {data['referral_rewards']}")
+        markup = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Всё время", callback_data="adm:stats:0"), InlineKeyboardButton(text="7 дней", callback_data="adm:stats:7"), InlineKeyboardButton(text="30 дней", callback_data="adm:stats:30")],
+            [InlineKeyboardButton(text="Скачать CSV", callback_data=f"adm:export:{days}")],
+            [InlineKeyboardButton(text="Назад", callback_data="adm:home:0")]])
+        await call.message.edit_text(text, reply_markup=markup); await call.answer(); return
+
+    if action == "export":
+        days = offset if offset in (7, 30) else 0
+        data = db.admin_dashboard(days)
+        o = data['offers']
+        rows = [
+            ("Показатель", "Значение"),
+            ("Период", "Всё время" if not days else f"{days} дней"),
+            ("Всего оферов", o['total']), ("Принятые оферы", o['accepted']),
+            ("Отклонённые оферы", o['declined']), ("Истёкшие оферы", o['expired']),
+            ("Ожидающие оферы", o['pending']), ("Новые пользователи", data['new_users']),
+            ("Активный доступ", data['active_access']), ("Business-подключения", data['active_connections']),
+            ("Успешные оплаты", data['paid']), ("Ожидающие оплаты", data['pending_payments']),
+            ("Получено TON", f"{data['revenue']:.2f}"), ("Приглашения", data['referrals']),
+            ("Реферальные начисления", data['referral_rewards']),
+        ]
+        stream = io.StringIO()
+        writer = csv.writer(stream, delimiter=';')
+        writer.writerows(rows)
+        document = BufferedInputFile(stream.getvalue().encode('utf-8-sig'), filename=f"offerbot_stats_{days or 'all'}.csv")
+        await call.answer("Отчёт подготовлен")
+        await bot.send_document(cfg.owner_id, document, caption="Отчёт OfferBot")
+        return
+
+    if action == "users":
+        text, markup = admin_users_view(offset)
+        await call.message.edit_text(text, reply_markup=markup); await call.answer(); return
+
+    if action == "usersearch":
+        awaiting_admin_search.add(cfg.owner_id)
+        await call.answer()
+        await call.message.answer("Отправьте Telegram ID, @username или часть имени. Для отмены: /cancel")
+        return
+
+    if action == "user":
+        uid = offset
+        row = db.admin_user_detail(uid)
+        buttons = [
+            [InlineKeyboardButton(text="Выдать временный доступ", callback_data=f"adm:usergrant:{uid}")],
+            [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
+            [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")],
+            [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]
+        await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
+
+    if action == "usergrant":
+        uid = offset
+        awaiting_access_grant.add(cfg.owner_id)
+        await call.answer()
+        await call.message.answer(f"Отправьте срок в часах для пользователя <code>{uid}</code> в формате: <code>{uid} 24</code>. Для отмены: /cancel")
+        return
+
+    if action == "userremove":
+        db.remove_access(offset)
+        db.log_admin_action(cfg.owner_id, "remove_access", offset)
+        await call.answer("Доступ удалён", show_alert=True)
+        row = db.admin_user_detail(offset)
+        await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад к пользователям", callback_data="adm:users:0")],[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]])); return
+
+    if action == "userblock":
+        await admin_block(offset)
+        await call.answer("Пользователь заблокирован", show_alert=True)
+        row = db.admin_user_detail(offset)
+        await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад к пользователям", callback_data="adm:users:0")],[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]])); return
+
+    if action == "userunblock":
+        db.unblock_offer_user(offset)
+        db.log_admin_action(cfg.owner_id, "unblock_user", offset)
+        for connection in db.list_connections():
+            if int(connection['user_id']) == offset:
+                db.set_connection_blocked(connection['connection_id'], False)
+        await call.answer("Блокировка снята", show_alert=True)
+        row = db.admin_user_detail(offset)
+        await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад к пользователям", callback_data="adm:users:0")],[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]])); return
+
+    if action == "offers":
+        if raw_arg in {"all", "pending", "accepted", "declined", "expired"}:
+            admin_offer_filters[cfg.owner_id] = raw_arg
+            offset = 0
+        status = admin_offer_filters.get(cfg.owner_id, "all")
+        rows = db.admin_offers(status, 8, offset)
+        labels = {"all":"все", "pending":"ожидают", "accepted":"приняты", "declined":"отклонены", "expired":"истекли"}
+        lines = [f"<b>Оферы · {labels.get(status,status)}</b>", ""]
+        buttons=[]
+        for r in rows:
+            gift = html.escape(str(r['gift_name'])[:18])
+            lines.append(f"#{r['id']} · {gift} · {r['amount']:g} {r['currency']} · {r['status']}")
+            buttons.append([InlineKeyboardButton(text=f"Офер #{r['id']} · {gift[:14]}", callback_data=f"adm:offer:{r['id']}")])
+        if not rows: lines.append("Оферов в этом разделе нет.")
+        buttons.append([InlineKeyboardButton(text="Все", callback_data="adm:offers:all"), InlineKeyboardButton(text="Ожидают", callback_data="adm:offers:pending")])
+        buttons.append([InlineKeyboardButton(text="Приняты", callback_data="adm:offers:accepted"), InlineKeyboardButton(text="Отклонены", callback_data="adm:offers:declined"), InlineKeyboardButton(text="Истекли", callback_data="adm:offers:expired")])
+        nav=[]
+        if offset: nav.append(InlineKeyboardButton(text="Предыдущая", callback_data=f"adm:offerpage:{max(0,offset-8)}"))
+        if len(rows)==8: nav.append(InlineKeyboardButton(text="Следующая", callback_data=f"adm:offerpage:{offset+8}"))
+        if nav: buttons.append(nav)
+        buttons.append([InlineKeyboardButton(text="В админку", callback_data="adm:home:0")])
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
+
+    if action == "offerpage":
+        status = admin_offer_filters.get(cfg.owner_id, "all")
+        rows = db.admin_offers(status, 8, offset)
+        lines=[f"<b>Оферы · {status}</b>", ""]
+        buttons=[]
+        for r in rows:
+            gift=html.escape(str(r['gift_name'])[:18]); lines.append(f"#{r['id']} · {gift} · {r['amount']:g} {r['currency']} · {r['status']}")
+            buttons.append([InlineKeyboardButton(text=f"Офер #{r['id']} · {gift[:14]}", callback_data=f"adm:offer:{r['id']}")])
+        nav=[]
+        if offset: nav.append(InlineKeyboardButton(text="Предыдущая", callback_data=f"adm:offerpage:{max(0,offset-8)}"))
+        if len(rows)==8: nav.append(InlineKeyboardButton(text="Следующая", callback_data=f"adm:offerpage:{offset+8}"))
+        if nav: buttons.append(nav)
+        buttons.append([InlineKeyboardButton(text="Назад", callback_data="adm:offers:all")])
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
+
+    if action == "offer":
+        row = db.get_offer(offset)
+        if not row:
+            await call.answer("Офер не найден", show_alert=True); return
+        text=(f"<b>Офер #{row['id']}</b>\n\nПодарок: {html.escape(row['gift_name'])} #{row['gift_number']}\n"
+              f"Продавец: <code>{row['seller_id']}</code>\nПокупатель: <code>{row['buyer_id']}</code>\n"
+              f"Сумма: <b>{row['amount']:g} {row['currency']}</b>\nСтатус: {row['status']}\n"
+              f"Создан: {row['created_at'].strftime('%d.%m.%Y %H:%M') if row.get('created_at') else '—'}\n"
+              f"Ссылка: {html.escape(row['gift_url'])}")
+        await call.message.edit_text(text, reply_markup=admin_back_keyboard("offers")); await call.answer(); return
+
+    if action == "payments":
+        rows=db.admin_payments(8,offset)
+        lines=["<b>Платежи</b>", ""]
+        buttons=[]
+        for r in rows:
+            stamp=r['created_at'].strftime('%d.%m %H:%M') if r.get('created_at') else '—'
+            lines.append(f"#{r['id']} · <code>{r['user_id']}</code> · {r['amount']:g} TON · {r['status']} · {stamp}")
+            buttons.append([InlineKeyboardButton(text=f"Платёж #{r['id']} · {r['amount']:g} TON", callback_data=f"adm:payment:{r['id']}")])
+        if not rows: lines.append("Платежей пока нет.")
+        nav=[]
+        if offset: nav.append(InlineKeyboardButton(text="Предыдущая", callback_data=f"adm:payments:{max(0,offset-8)}"))
+        if len(rows)==8: nav.append(InlineKeyboardButton(text="Следующая", callback_data=f"adm:payments:{offset+8}"))
+        if nav: buttons.append(nav)
+        buttons.append([InlineKeyboardButton(text="Назад", callback_data="adm:home:0")])
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
+
+    if action == "payment":
+        row = db.get_payment_by_id(offset)
+        if not row:
+            await call.answer("Платёж не найден", show_alert=True); return
+        created = row['created_at'].strftime('%d.%m.%Y %H:%M') if row.get('created_at') else '—'
+        paid = row['paid_at'].strftime('%d.%m.%Y %H:%M') if row.get('paid_at') else '—'
+        text=(f"<b>Платёж #{row['id']}</b>\n\nПользователь: <code>{row['user_id']}</code>\n"
+              f"Сумма: <b>{row['amount']:g} TON</b>\nСтатус: {row['status']}\nПровайдер: {row.get('provider') or '—'}\n"
+              f"Создан: {created}\nОплачен: {paid}\nМетка: <code>{html.escape(row.get('memo') or '—')}</code>\n"
+              f"ID счёта: <code>{html.escape(str(row.get('provider_invoice_id') or '—'))}</code>")
+        await call.message.edit_text(text, reply_markup=admin_back_keyboard("payments")); await call.answer(); return
+
+    if action == "referrals":
+        data=db.admin_dashboard(0); rows=db.admin_referrals(8,offset)
+        lines=["<b>Реферальная система</b>", f"Приглашено: <b>{data['referrals']}</b>", f"Успешных начислений: <b>{data['referral_rewards']}</b>", "", "<b>Топ пригласивших</b>"]
+        for r in rows: lines.append(f"<code>{r['referrer_id']}</code> · приглашено {r['invited']} · оплатили {r['paid_invites']}")
+        if not rows: lines.append("Пока нет приглашений.")
+        buttons=[]; nav=[]
+        if offset: nav.append(InlineKeyboardButton(text="Предыдущая", callback_data=f"adm:referrals:{max(0,offset-8)}"))
+        if len(rows)==8: nav.append(InlineKeyboardButton(text="Следующая", callback_data=f"adm:referrals:{offset+8}"))
+        if nav: buttons.append(nav)
+        buttons.append([InlineKeyboardButton(text="Назад", callback_data="adm:home:0")])
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
+
+    if action == "settings":
+        try:
+            referral_hours = float(db.get_setting("referral_reward_hours", "24"))
+        except (TypeError, ValueError):
+            referral_hours = 24.0
+        text=("<b>Настройки</b>\n\n"
+              f"Цена доступа: <b>{get_payment_price():g} TON</b>\n"
+              f"Длительность доступа: <b>{get_access_duration_hours():g} часов</b>\n"
+              f"Реферальный бонус: <b>{referral_hours:g} часов</b>\n\nВыберите настройку.")
+        markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Изменить цену", callback_data="adm:payment_price:0")],
+            [InlineKeyboardButton(text="Изменить срок доступа", callback_data="adm:access_duration:0")],
+            [InlineKeyboardButton(text="Изменить реферальный бонус", callback_data="adm:referral_hours:0")],
+            [InlineKeyboardButton(text="Изменить баннер", callback_data="adm:banner:0")],
+            [InlineKeyboardButton(text="Профиль кнопки передачи", callback_data="adm:change_profile:0")],
+            [InlineKeyboardButton(text="Назад", callback_data="adm:home:0")]])
+        await call.message.edit_text(text, reply_markup=markup); await call.answer(); return
+
+    if action == "system":
+        data=db.admin_system_stats()
+        try:
+            with db.connect() as con, con.cursor() as cur: cur.execute("SELECT 1")
+            db_state="Подключена"
+        except Exception as exc:
+            db_state=f"Ошибка: {type(exc).__name__}"
+        audit = db.recent_admin_actions(8)
+        audit_lines = [f"{r['created_at'].strftime('%d.%m %H:%M')} · {html.escape(r['action'])} · ID {r['target_user_id'] or '—'}" for r in audit]
+        text=("<b>Система и журналы</b>\n\n"
+              f"База данных: <b>{db_state}</b>\nПользователей: {data['users']}\nОферов: {data['offers']}\n"
+              f"Платежей: {data['payments']}\nОжидают оплаты: {data['pending_payments']}\n\n"
+              "<b>Последние действия администратора</b>\n" + ("\n".join(audit_lines) if audit_lines else "Записей пока нет.") +
+              "\n\nПодробные технические ошибки доступны в логах хостинга.")
+        await call.message.edit_text(text, reply_markup=admin_back_keyboard()); await call.answer(); return
 
     if action == "access":
         text = (
@@ -1433,6 +1767,7 @@ async def admin_callback(call: CallbackQuery):
             [InlineKeyboardButton(text="Выдать доступ по @username", callback_data="adm:allow_username:0")],
             [InlineKeyboardButton(text="Выдать доступ по Telegram ID", callback_data="adm:allow_id:0")],
             [InlineKeyboardButton(text="Выдать временный доступ", callback_data="adm:allow_temp:0")],
+            [InlineKeyboardButton(text="Скоро истекает", callback_data="adm:expiring:0")],
             [InlineKeyboardButton(text="Забрать доступ у всех", callback_data="adm:revoke_all_prompt:0")],
             [InlineKeyboardButton(text="Назад в админку", callback_data="adm:home:0")],
         ])
@@ -1442,6 +1777,23 @@ async def admin_callback(call: CallbackQuery):
         except Exception:
             await call.message.answer(text, reply_markup=markup)
         return
+
+    if action == "expiring":
+        rows = db.expiring_access(24, 8, offset)
+        lines = ["<b>Доступ истекает в ближайшие 24 часа</b>", ""]
+        buttons=[]
+        for r in rows:
+            name=html.escape(r.get('first_name') or r.get('username') or 'Пользователь')
+            left=max(0,int((r['expires_at']-datetime.now(r['expires_at'].tzinfo or timezone.utc)).total_seconds()/60))
+            lines.append(f"{name} · <code>{r['user_id']}</code> · через {left} мин.")
+            buttons.append([InlineKeyboardButton(text=f"Пользователь {r['user_id']}", callback_data=f"adm:user:{r['user_id']}")])
+        if not rows: lines.append("Нет пользователей с истекающим доступом.")
+        nav=[]
+        if offset: nav.append(InlineKeyboardButton(text="Предыдущая", callback_data=f"adm:expiring:{max(0,offset-8)}"))
+        if len(rows)==8: nav.append(InlineKeyboardButton(text="Следующая", callback_data=f"adm:expiring:{offset+8}"))
+        if nav: buttons.append(nav)
+        buttons.append([InlineKeyboardButton(text="Назад", callback_data="adm:access:0")])
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
 
     if action == "revoke_all_prompt":
         markup = InlineKeyboardMarkup(inline_keyboard=[
@@ -1459,6 +1811,7 @@ async def admin_callback(call: CallbackQuery):
 
     if action == "revoke_all_confirm":
         removed = db.revoke_all_access(cfg.owner_id)
+        db.log_admin_action(cfg.owner_id, "revoke_all_access", None, f"removed={removed}")
         await call.answer("Доступы отозваны", show_alert=True)
         await call.message.edit_text(
             f"Массовый отзыв завершён. Удалено активных выдач: {removed}.\\n"
@@ -1478,6 +1831,18 @@ async def admin_callback(call: CallbackQuery):
             "Отправьте новую цену числом в TON (например, 5 или 7.5).\n"
             "Для отмены отправьте /cancel."
         )
+        return
+
+    if action == "access_duration":
+        awaiting_access_duration.add(cfg.owner_id)
+        await call.answer()
+        await call.message.answer(f"Текущий срок: {get_access_duration_hours():g} часов. Отправьте новый срок от 1 до 8760 часов. Для отмены: /cancel")
+        return
+
+    if action == "referral_hours":
+        awaiting_referral_hours.add(cfg.owner_id)
+        await call.answer()
+        await call.message.answer("Отправьте количество часов реферального бонуса (от 1 до 8760). Сейчас действует 24 часа. Для отмены: /cancel")
         return
 
     if action == "banner":
@@ -1504,23 +1869,11 @@ async def admin_callback(call: CallbackQuery):
         await call.answer()
         await call.message.answer("Чтобы выдать доступ по Telegram ID, отправь команду: <code>/allow 123456789</code>.")
         return
-    if action == "stats":
-        offers = db.stats()
-        today_total, today_accepted, conversion = db.daily_offer_stats()
-        text = ("<b>📊 Статистика OfferBot</b>\n\n"
-                f"👥 Всего пользователей: {db.total_users()}\n"
-                f"🎁 Оферов сегодня: {today_total} · принято: {today_accepted} ({conversion:.0f}%)\n"
-                f"📦 Оферов всего: {sum(int(v) for v in offers.values())}\n"
-                f"🔌 Активных Business-подключений: {sum(1 for r in db.list_connections() if r['is_enabled'])}\n"
-                f"Текущая цена доступа: {get_payment_price():g} TON.")
-        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
-        await call.answer()
-        return
     if action == "allow":
         uid = offset
         await admin_allow(uid)
         await call.answer("Доступ выдан")
-        try: await bot.send_message(cfg.owner_id, f"🟢 Доступ выдан пользователю <code>{uid}</code> через админку.")
+        try: await bot.send_message(cfg.owner_id, f"Доступ выдан пользователю <code>{uid}</code> через админку.")
         except Exception: pass
         try:
             await bot.send_message(uid, "✅ Доступ к оферам активирован.")
@@ -1536,24 +1889,24 @@ async def admin_callback(call: CallbackQuery):
         awaiting_broadcast.add(cfg.owner_id)
         await call.answer()
         try:
-            await call.message.edit_text("📣 <b>Рассылка</b>\nОтправь текст, фото, видео или GIF. Для отмены: /cancel", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Отмена", callback_data="adm:home:0")]]))
+            await call.message.edit_text("<b>Рассылка</b>\nОтправь текст, фото, видео или GIF. Для отмены: /cancel", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Отмена", callback_data="adm:home:0")]]))
         except Exception:
-            await call.message.answer("📣 Отправь материал для рассылки. Для отмены: /cancel")
+            await call.message.answer("Отправьте материал для рассылки. Для отмены: /cancel")
         return
 
     if action == "change_profile":
         await call.answer()
         text = (
-            "👤 <b>Изменить профиль кнопки 'Передать'</b>\n\n"
+            "<b>Изменить профиль кнопки передачи</b>\n\n"
             "Введите команду в формате:\n"
             "<code>/setprofile user_id @новый_username</code>\n\n"
             "Пример: <code>/setprofile 123456789 @myshop</code>\n\n"
             "Это изменит профиль получателя в кнопке 'Передать' для указанного пользователя."
         )
         try:
-            await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
+            await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]))
         except Exception:
-            await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")]]))
+            await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]))
         return
 
     if action == "connections":
@@ -1565,7 +1918,7 @@ async def admin_callback(call: CallbackQuery):
             uid = int(r['user_id'])
             access = db.has_access(uid, cfg.owner_id, cfg.offer_access_mode)
             kb_rows.append([
-                InlineKeyboardButton(text=f"{'⛔ Снять' if access else '🟢 Дать'} · {uid}", callback_data=f"adm:{'block' if access else 'allow'}:{uid}")
+                InlineKeyboardButton(text=f"{'Заблокировать' if access else 'Выдать доступ'} · {uid}", callback_data=f"adm:{'block' if access else 'allow'}:{uid}")
             ])
         nav = []
         if offset > 0:
@@ -1573,7 +1926,7 @@ async def admin_callback(call: CallbackQuery):
         if has_next:
             nav.append(InlineKeyboardButton(text="›", callback_data=f"adm:connections:{offset+8}"))
         if nav: kb_rows.append(nav)
-        kb_rows.append([InlineKeyboardButton(text="↩️ Админка", callback_data="adm:home:0")])
+        kb_rows.append([InlineKeyboardButton(text="В админку", callback_data="adm:home:0")])
         markup = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     else:
         if action == "home":
