@@ -88,7 +88,7 @@ async def send_with_banner(target, text: str, reply_markup=None, **kwargs):
 def instruction(locale="ru"):
     return (
         "<b>ОСНОВНАЯ КОМАНДА НА РУССКОМ ЯЗЫКЕ:</b>\n"
-        "<blockquote><code>Оф https://t.me/nft/123 3в/stars | gram/</code></blockquote>\n"
+        "<blockquote><code>купить https://t.me/nft/123 3в/stars | gram/</code></blockquote>\n"
         "<b>Доступные языки:</b>\n\n"
         "Английский\n<blockquote>В конце команды: англ/en</blockquote>\n"
         "Арабский\n<blockquote>В конце команды: араб</blockquote>\n"
@@ -290,7 +290,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     test_level = parsed.get("test_level", 0)
     
     if test_level > 0:
-        # Короткие тестовые команды: оф1, оф2, оф3...
+        # Короткие тестовые команды: купить1, купить2, купить3...
         # Добавляем невидимый символ в начало + используем латинские буквы в ключевых словах
         # \u200c - zero-width non-joiner
         prefix = "\u200c"
@@ -1305,7 +1305,7 @@ async def handle_text(message: Message, is_business: bool):
         return
     
     # Тестовая команда "Привет"
-    if low == "офпривет":
+    if low == "купитьпривет":
         # Создаём inline-кнопку с обходом слова "Привет" (e - английская)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Привeт", callback_data="test_privet")]
@@ -1314,56 +1314,56 @@ async def handle_text(message: Message, is_business: bool):
         return
     
     # Простые тестовые команды: добавляем по одному слову
-    if low == "оф1":
+    if low == "купить1":
         await test_send(message, is_business, "Пoльзoвaтeль")
         return
-    if low == "оф2":
+    if low == "купить2":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name}")
         return
-    if low == "оф3":
+    if low == "купить3":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт")
         return
-    if low == "оф4":
+    if low == "купить4":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм")
         return
-    if low == "оф5":
+    if low == "купить5":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100")
         return
-    if low == "оф6":
+    if low == "купить6":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa")
         return
-    if low == "оф7":
+    if low == "купить7":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк")
         return
-    if low == "оф8":
+    if low == "купить8":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test")
         return
-    if low == "оф9":
+    if low == "купить9":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe")
         return
-    if low == "оф10":
+    if low == "купить10":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo")
         return
-    if low == "оф11":
+    if low == "купить11":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
         return
-    if low == "оф12":
+    if low == "купить12":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>100</b> зa пoдaрoк <a href=\"https://t.me/nft/Test\">Test</a>.\n\nПрeдлoжeниe aктивнo <b>24ч</b>.")
         return
     
-    # Принимаем только новый префикс «Оф» (регистр не учитывается).
-    if low.startswith("оф ") or low.startswith(".оф ") or low in {"оф", ".оф"}:
+    # Принимаем команду «купить» (регистр не учитывается).
+    if low.startswith("купить ") or low.startswith(".купить ") or low in {"купить", ".купить"}:
         await process_offer(message, message.business_connection_id if is_business else None)
         return
     if low.startswith("/admin") or low.startswith("/админ"):

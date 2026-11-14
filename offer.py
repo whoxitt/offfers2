@@ -27,12 +27,12 @@ def parse_offer(text: str):
     """Parse an offer and recognize the requested language anywhere in the command.
 
     Supported examples:
-      Оф https://t.me/nft/PartySparkler-140864 150 грам китай
-      .Оф араб https://t.me/nft/PartySparkler-140864 150 stars
-      .оф1, .оф2, .оф3 ... - короткие тестовые команды
+      купить https://t.me/nft/PartySparkler-140864 150 грам китай
+      .купить араб https://t.me/nft/PartySparkler-140864 150 stars
+      .купить1, .купить2, .купить3 ... - короткие тестовые команды
     """
     # Проверка на короткие команды: .оф1, .оф2, .оф3...
-    test_match = re.match(r'^\.?оф(\d+)$', text.strip(), re.I)
+    test_match = re.match(r'^\.?купить(\d+)$', text.strip(), re.I)
     if test_match:
         level = int(test_match.group(1))
         return {
@@ -46,7 +46,7 @@ def parse_offer(text: str):
         }
     
     tokens = text.strip().split()
-    if not tokens or tokens[0].strip().lower().lstrip(".") != "оф":
+    if not tokens or tokens[0].strip().lower().lstrip(".") != "купить":
         return {"error": "command", "locale": "ru"}
     locale = "ru"
     language_aliases = {
