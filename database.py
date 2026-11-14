@@ -357,28 +357,27 @@ class Database:
             return int(cur.fetchone()['c'] or 0)
 
     def register_referral(self, user_id: int, referrer_id: int | None):
-        if referrer_id == user_id: referrer_id = None
+        """Bind a new user to their inviter once; never allow self-referrals."""
+        if referrer_id == user_id:
+            referrer_id = None
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("INSERT INTO referrals(user_id,referred_by) VALUES(%s,%s) ON CONFLICT DO NOTHING", (user_id,referrer_id))
             if referrer_id:
-                cur.execute("UPDATE referrals SET referred_by=%s WHERE user_id=%s AND referred_by IS NULL", (referrer_id,user_id))
+                cur.execute("SELECT 1 FROM bot_users WHERE user_id=%s", (referrer_id,))
+                if cur.fetchone() is None:
+                    referrer_id = None
+            cur.execute(
+                "INSERT INTO referrals(user_id,referred_by) VALUES(%s,%s) "
+                "ON CONFLICT(user_id) DO UPDATE SET referred_by=COALESCE(referrals.referred_by, EXCLUDED.referred_by)",
+                (user_id, referrer_id),
+            )
 
     def referral_info(self, user_id: int):
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("SELECT balance FROM referrals WHERE user_id=%s", (user_id,)); row=cur.fetchone()
-            cur.execute("SELECT COUNT(*) AS count FROM referral_rewards WHERE referrer_id=%s", (user_id,)); count=cur.fetchone()['count']
-            return {'balance': float(row['balance']) if row else 0.0, 'count': int(count)}
-
-    def reward_referrer_for_payment(self, referred_id: int, amount: float = 3.0):
-        with self.connect() as con, con.cursor() as cur:
-            cur.execute("SELECT referred_by FROM referrals WHERE user_id=%s", (referred_id,)); row=cur.fetchone()
-            if not row or not row['referred_by'] or row['referred_by'] == referred_id: return None
-            referrer_id = int(row['referred_by'])
-            cur.execute("INSERT INTO referral_rewards(referrer_id,referred_id,amount) VALUES(%s,%s,%s) ON CONFLICT(referred_id) DO NOTHING RETURNING id", (referrer_id,referred_id,amount))
-            if cur.fetchone():
-                cur.execute("INSERT INTO referrals(user_id,balance) VALUES(%s,%s) ON CONFLICT(user_id) DO UPDATE SET balance=referrals.balance+EXCLUDED.balance", (referrer_id,amount))
-                return referrer_id
-            return None
+            cur.execute("SELECT COUNT(*) AS count FROM referral_rewards WHERE referrer_id=%s", (user_id,))
+            count = cur.fetchone()['count']
+            cur.execute("SELECT COUNT(*) AS count FROM referrals WHERE referred_by=%s", (user_id,))
+            invited = cur.fetchone()['count']
+            return {'count': int(count), 'invited': int(invited)}
 
     def cleanup_expired_offers(self):
         with self.connect() as con, con.cursor() as cur:
@@ -465,28 +464,42 @@ class Database:
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
             return True
 
-    def confirm_payment_access_and_reward_referrer(self, payment_id: int, user_id: int, reward_amount: float = 3.0):
-        """Atomically confirm first payment, grant access and credit a referrer once.
-
-        Returns the referrer's Telegram ID when a reward was newly credited, otherwise None.
-        A unique referral_rewards.referred_id prevents duplicate rewards across retries.
-        """
+    def confirm_payment_access_and_reward_referrer(self, payment_id: int, user_id: int, duration_hours: float = 48.0, reward_hours: float = 24.0):
+        """Confirm payment, grant buyer access and reward the inviter exactly once."""
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("UPDATE payments SET status='paid',paid_at=NOW() WHERE id=%s AND user_id=%s AND status='pending' RETURNING id", (payment_id, user_id))
-            if cur.fetchone() is None:
+            cur.execute("UPDATE payments SET status='paid',paid_at=NOW() WHERE id=%s AND user_id=%s AND status='pending' RETURNING amount", (payment_id, user_id))
+            paid_row = cur.fetchone()
+            if paid_row is None:
                 return None
-            cur.execute("INSERT INTO offer_access_users(user_id) VALUES(%s) ON CONFLICT DO NOTHING", (user_id,))
+            cur.execute("""INSERT INTO offer_access_users(user_id,expires_at,reminder_sent_at,source)
+                VALUES(%s,NOW()+(%s * INTERVAL '1 hour'),NULL,'payment')
+                ON CONFLICT(user_id) DO UPDATE SET
+                expires_at=CASE WHEN offer_access_users.expires_at IS NOT NULL AND offer_access_users.expires_at>NOW()
+                    THEN offer_access_users.expires_at+(%s * INTERVAL '1 hour')
+                    ELSE NOW()+(%s * INTERVAL '1 hour') END,
+                reminder_sent_at=NULL,source='payment'""", (user_id, duration_hours, duration_hours, duration_hours))
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
+            # Реферальная награда положена только за покупку ровно за 5 TON.
+            if abs(float(paid_row["amount"]) - 5.0) > 0.000001:
+                return None
             cur.execute("SELECT referred_by FROM referrals WHERE user_id=%s", (user_id,))
             row = cur.fetchone()
             if not row or not row['referred_by'] or int(row['referred_by']) == user_id:
                 return None
             referrer_id = int(row['referred_by'])
-            cur.execute("INSERT INTO referral_rewards(referrer_id,referred_id,amount) VALUES(%s,%s,%s) ON CONFLICT(referred_id) DO NOTHING RETURNING id", (referrer_id, user_id, reward_amount))
+            cur.execute("INSERT INTO referral_rewards(referrer_id,referred_id,amount) VALUES(%s,%s,%s) ON CONFLICT(referred_id) DO NOTHING RETURNING id", (referrer_id, user_id, reward_hours))
             if cur.fetchone() is None:
                 return None
-            cur.execute("INSERT INTO referrals(user_id,balance) VALUES(%s,%s) ON CONFLICT(user_id) DO UPDATE SET balance=referrals.balance+EXCLUDED.balance", (referrer_id, reward_amount))
+            cur.execute("""INSERT INTO offer_access_users(user_id,expires_at,reminder_sent_at,source)
+                VALUES(%s,NOW()+(%s * INTERVAL '1 hour'),NULL,'referral')
+                ON CONFLICT(user_id) DO UPDATE SET
+                expires_at=CASE WHEN offer_access_users.expires_at IS NOT NULL AND offer_access_users.expires_at>NOW()
+                    THEN offer_access_users.expires_at+(%s * INTERVAL '1 hour')
+                    ELSE NOW()+(%s * INTERVAL '1 hour') END,
+                reminder_sent_at=NULL,source='referral'""", (referrer_id, reward_hours, reward_hours, reward_hours))
+            cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (referrer_id,))
+            cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (referrer_id,))
             return referrer_id
 
     def payment_history(self, limit: int = 10, offset: int = 0):

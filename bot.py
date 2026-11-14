@@ -124,6 +124,7 @@ def main_menu_keyboard(user_id: int | None = None):
     return InlineKeyboardMarkup(inline_keyboard=[
         [first_button],
         [InlineKeyboardButton(text="🔑 Активировать доступ", callback_data="activate_access")],
+        [InlineKeyboardButton(text="Реферальная программа", callback_data="my_referrals")],
         [InlineKeyboardButton(text="Инструкция", callback_data="show_instruction")],
         [InlineKeyboardButton(text="Я чайник", callback_data="support_start")],
     ])
@@ -473,6 +474,14 @@ async def on_start(message: Message):
     except Exception:
         is_new_user = False
     db.register_user(user.id, user.username, user.first_name, user.last_name)
+    # /start ref_<telegram_id>: привязка реферала фиксируется только один раз.
+    referral_id = None
+    start_parts = (message.text or "").split(maxsplit=1)
+    if len(start_parts) > 1 and start_parts[1].startswith("ref_"):
+        raw_referrer = start_parts[1][4:]
+        if raw_referrer.isdigit():
+            referral_id = int(raw_referrer)
+    db.register_referral(user.id, referral_id if is_new_user else None)
     if is_new_user and user.id != cfg.owner_id:
         try:
             await bot.send_message(cfg.owner_id, f"👤 <b>Новый пользователь</b>\n{display_name(user)} · @{user.username or 'без username'}\nID: <code>{user.id}</code>")
@@ -637,6 +646,39 @@ async def access_link_no_callback(call: CallbackQuery):
     except Exception:
         pass
     await call.answer("Запрос отклонён")
+
+
+@dp.callback_query(F.data == "my_referrals")
+async def my_referrals_callback(call: CallbackQuery):
+    user = call.from_user
+    if not user:
+        await call.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    db.register_user(user.id, user.username, user.first_name, user.last_name)
+    db.register_referral(user.id, None)
+    username = cfg.bot_username
+    if not username:
+        me = await bot.get_me()
+        username = me.username or ""
+    if not username:
+        await call.answer("Не удалось получить ссылку бота", show_alert=True)
+        return
+    link = f"https://t.me/{username}?start=ref_{user.id}"
+    stats = db.referral_info(user.id)
+    text = (
+        "<b>Реферальная программа</b>\n\n"
+        "Приглашайте пользователей по своей ссылке. Когда приглашённый впервые оплатит доступ за 5 TON, "
+        "вам автоматически начислится 24 часа доступа.\n\n"
+        f"Ваша ссылка:\n<code>{link}</code>\n\n"
+        f"Приглашено пользователей: <b>{stats['invited']}</b>\n"
+        f"Успешных оплат: <b>{stats['count']}</b>"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Поделиться ссылкой", url=f"https://t.me/share/url?url={link}")],
+        [InlineKeyboardButton(text="В главное меню", callback_data="back_to_start")],
+    ])
+    await call.message.answer(text, reply_markup=keyboard, disable_web_page_preview=True)
+    await call.answer()
 
 
 @dp.callback_query(F.data == "my_profile")
@@ -847,9 +889,18 @@ async def pay_check_callback(call: CallbackQuery):
             return
     
     if paid:
-        # Подтверждаем оплату и выдаём доступ
-        db.confirm_payment_and_grant_access(payment_id, call.from_user.id, cfg.access_duration_hours)
-        
+        # Одной транзакцией подтверждаем оплату, выдаём доступ и начисляем 24 часа пригласившему.
+        referrer_id = db.confirm_payment_access_and_reward_referrer(
+            payment_id, call.from_user.id, cfg.access_duration_hours, 24.0
+        )
+        if referrer_id is None:
+            # None также возвращается при повторной проверке; проверяем статус платежа,
+            # чтобы не показывать успешное начисление повторно.
+            confirmed = db.get_payment_by_id(payment_id)
+            if not confirmed or confirmed.get("status") != "paid":
+                await call.answer("Не удалось подтвердить платёж. Попробуйте ещё раз.", show_alert=True)
+                return
+
         caption = (
             "Платёж подтверждён!\n\n"
             f"Доступ к OfferBot активирован на {cfg.access_duration_hours:g} часов.\n"
@@ -860,6 +911,14 @@ async def pay_check_callback(call: CallbackQuery):
             [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
         ])
         await send_with_banner(call.message, caption, reply_markup=success_keyboard)
+        if referrer_id:
+            try:
+                await bot.send_message(
+                    referrer_id,
+                    "Ваш приглашённый пользователь оплатил доступ. Вам начислено 24 часа доступа."
+                )
+            except Exception:
+                log.exception("Could not notify referrer user_id=%s", referrer_id)
 
         # Уведомляем админа
         try:
