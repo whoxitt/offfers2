@@ -76,6 +76,11 @@ class Database:
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'admin'",
         "CREATE TABLE IF NOT EXISTS offer_blocked_users (user_id BIGINT PRIMARY KEY)",
         "CREATE TABLE IF NOT EXISTS offer_access_links (child_user_id BIGINT PRIMARY KEY, owner_user_id BIGINT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
+        # Upgrade legacy installations too: CREATE TABLE IF NOT EXISTS does not
+        # add columns when the table was created by an older bot version.
+        "ALTER TABLE offer_access_links ADD COLUMN IF NOT EXISTS child_user_id BIGINT",
+        "ALTER TABLE offer_access_links ADD COLUMN IF NOT EXISTS owner_user_id BIGINT",
+        "ALTER TABLE offer_access_links ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
         "CREATE INDEX IF NOT EXISTS idx_offer_access_links_owner ON offer_access_links(owner_user_id)",
         "CREATE TABLE IF NOT EXISTS offer_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
         """CREATE TABLE IF NOT EXISTS offer_user_profiles (
@@ -295,37 +300,37 @@ class Database:
             return cur.fetchone()
 
     def find_access_user_by_username(self, username: str):
-        """Find an account with an access grant by username, including active linked owners.
+        """Find the original account that owns an offer-access grant by Telegram username.
 
-        Use separate queries rather than UNION: older Bothost databases can have
-        slightly different legacy columns in bot_users and business connections.
+        Username matching is case-insensitive and tolerates an optional @ and
+        surrounding whitespace. Keep the two lookups separate for compatibility
+        with older PostgreSQL schemas where Business connection data may differ.
         """
-        username = username.strip().lstrip("@").lower()
+        username = (username or "").strip().lstrip("@").strip().lower()
         if not username:
             return None
         with self.connect() as con, con.cursor() as cur:
-            # First search normal bot users. An access owner can be a timed or
-            # legacy permanent grant; expiry is evaluated by has_access later.
             cur.execute(
                 """SELECT u.user_id, u.username, u.first_name, u.last_name
-                   FROM bot_users u
-                   INNER JOIN offer_access_users a ON a.user_id=u.user_id
-                   WHERE LOWER(LTRIM(BTRIM(COALESCE(u.username, '')), '@'))=%s
-                   ORDER BY u.updated_at DESC LIMIT 1""",
-                (username,)
+                   FROM bot_users AS u
+                   JOIN offer_access_users AS a ON a.user_id = u.user_id
+                   WHERE LOWER(REPLACE(BTRIM(COALESCE(u.username, '')), '@', '')) = %s
+                   ORDER BY u.user_id DESC
+                   LIMIT 1""",
+                (username,),
             )
             row = cur.fetchone()
             if row:
                 return row
 
-            # Fallback to a username learned from Telegram Business.
             cur.execute(
                 """SELECT c.user_id, c.username, c.first_name, c.last_name
-                   FROM offer_business_connections c
-                   INNER JOIN offer_access_users a ON a.user_id=c.user_id
-                   WHERE LOWER(LTRIM(BTRIM(COALESCE(c.username, '')), '@'))=%s
-                   ORDER BY c.updated_at DESC LIMIT 1""",
-                (username,)
+                   FROM offer_business_connections AS c
+                   JOIN offer_access_users AS a ON a.user_id = c.user_id
+                   WHERE LOWER(REPLACE(BTRIM(COALESCE(c.username, '')), '@', '')) = %s
+                   ORDER BY c.user_id DESC
+                   LIMIT 1""",
+                (username,),
             )
             return cur.fetchone()
 

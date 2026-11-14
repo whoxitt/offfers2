@@ -1100,7 +1100,6 @@ async def on_message(message: Message):
                     await message.answer("У указанного основного аккаунта нет активного доступа. Обратитесь в поддержку.")
                     return
                 pending_access_usernames[u.id] = username
-                pending_access_usernames[u.id] = username
                 kb = InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="Подтвердить привязку", callback_data=f"access_link_yes:{owner_uid}:{u.id}")],
                     [InlineKeyboardButton(text="Отклонить", callback_data=f"access_link_no:{owner_uid}:{u.id}")]
@@ -1111,9 +1110,9 @@ async def on_message(message: Message):
                 awaiting_access_recovery.discard(u.id)
                 await message.answer("Запрос отправлен на основной аккаунт. Доступ появится только после подтверждения владельцем.")
                 log.info("ACCESS_LINK_REQUEST child=%s owner=%s username=%s", u.id, owner_uid, username)
-            except Exception:
-                log.exception("Access recovery failed for user_id=%s", u.id)
-                await message.answer("❌ Не удалось проверить доступ из-за ошибки базы. Попробуй позже.")
+            except Exception as exc:
+                log.exception("Access recovery DB/check failed: child_user_id=%s username=%s error=%s", u.id, username, exc)
+                await message.answer("❌ Не удалось проверить доступ из-за ошибки базы. Ошибка записана в журнал бота; попробуй позже или обратись в поддержку.")
             return
         if u.id in awaiting_support:
             if (message.text or "").strip().lower() == "/cancel":
