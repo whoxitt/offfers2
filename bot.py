@@ -1104,15 +1104,37 @@ async def on_message(message: Message):
                     [InlineKeyboardButton(text="Подтвердить привязку", callback_data=f"access_link_yes:{owner_uid}:{u.id}")],
                     [InlineKeyboardButton(text="Отклонить", callback_data=f"access_link_no:{owner_uid}:{u.id}")]
                 ])
-                await bot.send_message(owner_uid,
-                    f"Запрос на привязку дополнительного аккаунта: @{u.username or 'username не указан'}\nID: <code>{u.id}</code>\n\nРазрешить использовать вашу подписку?",
-                    reply_markup=kb)
+                try:
+                    await bot.send_message(
+                        owner_uid,
+                        f"Запрос на привязку дополнительного аккаунта: @{u.username or 'username не указан'}\nID: <code>{u.id}</code>\n\nРазрешить использовать вашу подписку?",
+                        reply_markup=kb,
+                    )
+                except (TelegramBadRequest, TelegramForbiddenError) as send_error:
+                    # The owner may never have opened this bot, or may have blocked it.
+                    # This is a Telegram delivery problem, not a database failure.
+                    pending_access_usernames.pop(u.id, None)
+                    awaiting_access_recovery.discard(u.id)
+                    log.warning(
+                        "ACCESS_LINK_DELIVERY_FAILED child=%s owner=%s username=%s error=%s",
+                        u.id, owner_uid, username, send_error,
+                    )
+                    await message.answer(
+                        "✅ Основной аккаунт найден, и активный доступ подтверждён.\n\n"
+                        "Но Telegram не позволяет отправить ему запрос на подтверждение. "
+                        "Попроси владельца основного аккаунта открыть этого бота и нажать /start "
+                        "(либо разблокировать бота), затем повтори привязку.\n\n"
+                        "Доступ и подписка основного аккаунта не изменены."
+                    )
+                    return
                 awaiting_access_recovery.discard(u.id)
                 await message.answer("Запрос отправлен на основной аккаунт. Доступ появится только после подтверждения владельцем.")
                 log.info("ACCESS_LINK_REQUEST child=%s owner=%s username=%s", u.id, owner_uid, username)
             except Exception as exc:
+                awaiting_access_recovery.discard(u.id)
+                pending_access_usernames.pop(u.id, None)
                 log.exception("Access recovery DB/check failed: child_user_id=%s username=%s error=%s", u.id, username, exc)
-                await message.answer("❌ Не удалось проверить доступ из-за ошибки базы. Ошибка записана в журнал бота; попробуй позже или обратись в поддержку.")
+                await message.answer("❌ Не удалось проверить данные доступа из-за внутренней ошибки. Ошибка записана в журнал бота; попробуй позже или обратись в поддержку.")
             return
         if u.id in awaiting_support:
             if (message.text or "").strip().lower() == "/cancel":
