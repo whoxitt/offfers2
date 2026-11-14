@@ -214,9 +214,22 @@ class Database:
             return int(row["owner_user_id"]) if row else user_id
 
     def link_access_account(self, child_user_id: int, owner_user_id: int):
+        """Link a secondary account to the owner's subscription and clear stale child blocks."""
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("INSERT INTO offer_access_links(child_user_id,owner_user_id) VALUES(%s,%s) ON CONFLICT(child_user_id) DO UPDATE SET owner_user_id=EXCLUDED.owner_user_id,created_at=NOW()", (child_user_id, owner_user_id))
+            cur.execute(
+                "INSERT INTO offer_access_links(child_user_id,owner_user_id) "
+                "VALUES(%s,%s) ON CONFLICT(child_user_id) DO UPDATE SET "
+                "owner_user_id=EXCLUDED.owner_user_id,created_at=NOW()",
+                (child_user_id, owner_user_id),
+            )
+            # A linked account inherits the owner's access. Clear any previous
+            # user-level or Business-connection-level block on the child account.
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (child_user_id,))
+            cur.execute(
+                "UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() "
+                "WHERE user_id=%s",
+                (child_user_id,),
+            )
 
     def get_access_expiry(self, user_id: int):
         owner_id = self.get_access_owner(user_id)
