@@ -542,7 +542,20 @@ async def on_start(message: Message):
         await show_payment_options(message, user.id, pending)
         return
     
-    caption = "<blockquote>Привет, выбери действие</blockquote>"
+    trial_started = False
+    if user.id != cfg.owner_id and not db.has_access(user.id, cfg.owner_id, cfg.offer_access_mode):
+        try:
+            trial_started = db.grant_trial_if_eligible(user.id, 20)
+        except Exception:
+            log.exception("Could not grant trial access to user_id=%s", user.id)
+    if trial_started:
+        caption = (
+            "<blockquote>Привет, выбери действие</blockquote>\n\n"
+            "🎁 <b>Пробный доступ активирован на 20 минут!</b>\n"
+            "Успей воспользоваться всеми функциями OfferBot."
+        )
+    else:
+        caption = "<blockquote>Привет, выбери действие</blockquote>"
     await send_with_banner(message, caption, reply_markup=main_menu_keyboard(user.id))
 
 
@@ -2094,6 +2107,7 @@ async def offer_callback(call: CallbackQuery):
 async def access_reminder_job():
     while True:
         try:
+            # Existing reminder sent directly to the user.
             due_users = db.claim_one_hour_reminders()
             for row in due_users:
                 uid = int(row["user_id"])
@@ -2105,6 +2119,49 @@ async def access_reminder_job():
                     )
                 except Exception:
                     log.warning("Could not send access expiry reminder to user_id=%s", uid)
+
+            # Notify the bot owner once when each access period enters its final hour.
+            admin_due = db.claim_admin_one_hour_reminders()
+            for row in admin_due:
+                uid = int(row["user_id"])
+                expires = row["expires_at"]
+                expires_text = expires.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M UTC") if expires and expires.tzinfo else (expires.strftime("%d.%m.%Y %H:%M UTC") if expires else "неизвестно")
+                user_row = db.get_user(uid) if hasattr(db, "get_user") else None
+                username = (user_row or {}).get("username") if user_row else None
+                name = (user_row or {}).get("first_name") if user_row else None
+                identity = f"@{username}" if username else (name or "Без имени")
+                source = "Пробный период" if row.get("source") == "trial" else "Платный/выданный доступ"
+                try:
+                    await bot.send_message(
+                        cfg.owner_id,
+                        "⏳ <b>Скоро закончится доступ</b>\n\n"
+                        f"Пользователь: {identity}\nID: <code>{uid}</code>\n"
+                        f"Тип: {source}\nОкончание: <b>{expires_text}</b>\n"
+                        "До окончания осталось не более 1 часа."
+                    )
+                except Exception:
+                    log.warning("Could not notify owner about expiring access user_id=%s", uid)
+
+            # Notify the owner once after access has actually expired.
+            expired_users = db.claim_expired_access_notifications()
+            for row in expired_users:
+                uid = int(row["user_id"])
+                expires = row["expires_at"]
+                expires_text = expires.astimezone(timezone.utc).strftime("%d.%m.%Y %H:%M UTC") if expires and expires.tzinfo else (expires.strftime("%d.%m.%Y %H:%M UTC") if expires else "неизвестно")
+                user_row = db.get_user(uid) if hasattr(db, "get_user") else None
+                username = (user_row or {}).get("username") if user_row else None
+                name = (user_row or {}).get("first_name") if user_row else None
+                identity = f"@{username}" if username else (name or "Без имени")
+                source = "Пробный период" if row.get("source") == "trial" else "Платный/выданный доступ"
+                try:
+                    await bot.send_message(
+                        cfg.owner_id,
+                        "🔴 <b>Доступ пользователя закончился</b>\n\n"
+                        f"Пользователь: {identity}\nID: <code>{uid}</code>\n"
+                        f"Тип: {source}\nЗакончился: <b>{expires_text}</b>"
+                    )
+                except Exception:
+                    log.warning("Could not notify owner about expired access user_id=%s", uid)
         except Exception:
             log.exception("Access reminder job failed")
         await asyncio.sleep(60)
