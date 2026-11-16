@@ -200,6 +200,25 @@ class Database:
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
 
+    def grant_paid_access(self, user_id: int, hours: float, source: str = "admin_paid"):
+        """Grant access as if it was purchased - allows linking secondary accounts."""
+        with self.connect() as con, con.cursor() as cur:
+            # Удаляем старую связь если была (делаем основным аккаунтом)
+            cur.execute("DELETE FROM offer_access_links WHERE secondary_user_id=%s", (user_id,))
+            
+            # Выдаем доступ как "купленный"
+            cur.execute("""INSERT INTO offer_access_users(user_id,expires_at,reminder_sent_at,source)
+                VALUES(%s,NOW()+(%s * INTERVAL '1 hour'),NULL,%s)
+                ON CONFLICT(user_id) DO UPDATE SET
+                expires_at=CASE WHEN offer_access_users.expires_at IS NOT NULL AND offer_access_users.expires_at>NOW()
+                    THEN offer_access_users.expires_at+(%s * INTERVAL '1 hour')
+                    ELSE NOW()+(%s * INTERVAL '1 hour') END,
+                reminder_sent_at=NULL, expiry_admin_reminder_sent_at=NULL,
+                expired_notified_at=NULL, source=EXCLUDED.source""", (user_id,hours,source,hours,hours))
+            
+            cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
+            cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
+
     def claim_one_hour_reminders(self):
         """Atomically claim reminders due within the next hour, once per access period."""
         with self.connect() as con, con.cursor() as cur:

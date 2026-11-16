@@ -4,6 +4,7 @@ import html
 import uuid
 import csv
 import io
+import re
 from datetime import datetime, timezone, timedelta
 
 from aiogram import Bot, Dispatcher, F
@@ -157,7 +158,7 @@ def main_menu_keyboard(user_id: int | None = None):
     first_button = InlineKeyboardButton(text="Подписка", callback_data="my_subscription") if has_access else InlineKeyboardButton(text="Купить доступ", callback_data="buy_access")
     return InlineKeyboardMarkup(inline_keyboard=[
         [first_button],
-        [InlineKeyboardButton(text="🔑 Активировать доступ", callback_data="activate_access")],
+        [InlineKeyboardButton(text="👥 Привязать твинки", callback_data="activate_access")],
         [InlineKeyboardButton(text="Реферальная программа", callback_data="my_referrals")],
         [InlineKeyboardButton(text="Инструкция", callback_data="show_instruction")],
         [InlineKeyboardButton(text="Я чайник", callback_data="support_start")],
@@ -640,13 +641,13 @@ async def activate_access_callback(call: CallbackQuery):
     user = call.from_user
     db.register_user(user.id, user.username, user.first_name, user.last_name)
     if db.get_access_owner(user.id) != user.id or not db.has_paid_primary_access(user.id):
-        await call.answer("Передавать доступ может только основной аккаунт, на котором он был куплен.", show_alert=True)
+        await call.answer("Привязывать твинки может только основной аккаунт с купленным доступом.", show_alert=True)
         return
     awaiting_access_transfer.add(user.id)
     await call.message.answer(
-        "🔑 <b>Добавление твинка</b>\\n\\n"
-        "Отправь Telegram ID или @username дополнительного аккаунта.\\n"
-        "Твинк получит доступ до той же даты окончания, что и основной аккаунт.\\n\\n"
+        "👥 <b>Привязка твинка</b>\n\n"
+        "Отправь Telegram ID или @username дополнительного аккаунта.\n"
+        "Твинк получит доступ до той же даты окончания, что и основной аккаунт.\n\n"
         "Отмена: /cancel."
     )
     await call.answer()
@@ -1512,7 +1513,7 @@ async def handle_text(message: Message, is_business: bool):
             uid = int(found["user_id"])
             log.info("ALLOW_COMMAND: found user_id: %s", uid)
         
-        db.grant_timed_access(uid, hours, "admin")
+        db.grant_paid_access(uid, hours, "admin_paid")
         db.unblock_offer_user(uid)
         db.log_admin_action(cfg.owner_id, "grant_timed_access", uid, f"hours={hours:g}")
         log.info("ALLOW_COMMAND: access granted to %s for %s hours", uid, hours)
