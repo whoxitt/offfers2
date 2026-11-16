@@ -340,17 +340,17 @@ async def process_offer(message: Message, business_connection_id: str | None = N
             # Без "Пользователь", с пробелом "предлагает Вам"
             body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
         elif variant == "фу1":
-            # Обход через латинские буквы в обоих словах: o,a,e
-            body = f"Пoльзoвaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
+            # Вариант 1: Заменить "Пользователь" на "Юзер"
+            body = f"Юзер <b>{seller_name}</b> предлагает Вам <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
         elif variant == "фу2":
-            # Обход через HTML entities в ключевых буквах обоих слов
-            body = f"П&#1086;льз&#1086;в&#1072;т&#1077;ль <b>{seller_name}</b> пр&#1077;дл&#1072;г&#1072;&#1077;т Вaм <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
+            # Вариант 2: Заменить "предлагает" на "оффeрит" (e латинская)
+            body = f"Пользователь <b>{seller_name}</b> оффeрит Вaм <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
         elif variant == "фу3":
-            # Комбо: HTML в "Пользователь" + латинские в "предлагает"
-            body = f"П&#1086;льз&#1086;вaтeль <b>{seller_name}</b> прeдлaгaeт Вaм <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
+            # Вариант 3: Оба слова заменить - "Юзер" + "оффeрит"
+            body = f"Юзер <b>{seller_name}</b> оффeрит Вaм <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
         else:
-            # Дефолтный вариант без изменений
-            body = f"<b>{seller_name}</b> Вaм <b>{amount}</b> зa пoдapoк {gift_link}."
+            # Дефолтный вариант без "Пользователь" (как в "фу")
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
@@ -1130,9 +1130,33 @@ async def on_message(message: Message):
         db.set_setting("offer_command", command)
         db.log_admin_action(cfg.owner_id, "change_offer_command", None, f"command={command}")
         awaiting_offer_command.discard(cfg.owner_id)
+        
+        # Рассылка всем пользователям о новой команде
+        broadcast_text = f"📢 <b>Новая команда для отправки офера</b>\n\n<code>{html.escape(command)}</code>"
+        recipients = db.list_broadcast_users()
+        sent = failed = 0
+        for uid in recipients:
+            try:
+                await bot.send_message(chat_id=uid, text=broadcast_text)
+                sent += 1
+                await asyncio.sleep(0.04)  # Задержка чтобы не словить флуд
+            except TelegramForbiddenError:
+                db.mark_user_blocked(uid)
+                failed += 1
+            except TelegramRetryAfter as e:
+                await asyncio.sleep(e.retry_after)
+                try:
+                    await bot.send_message(chat_id=uid, text=broadcast_text)
+                    sent += 1
+                except Exception:
+                    failed += 1
+            except Exception:
+                failed += 1
+        
         await message.answer(
             f"✅ Команда создания офера изменена на: <code>{html.escape(command)}</code>\n"
-            "Можно писать её с точкой или без точки.",
+            "Можно писать её с точкой или без точки.\n\n"
+            f"Рассылка завершена: отправлено {sent}, ошибок {failed}.",
             reply_markup=admin_keyboard(),
         )
         return
