@@ -273,7 +273,10 @@ class Database:
         with self.connect() as con, con.cursor() as cur:
             cur.execute("""SELECT 1 FROM offer_access_users a
                 WHERE a.user_id=%s AND (a.expires_at IS NULL OR a.expires_at>NOW())
-                  AND EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
+                  AND (
+                      a.source='admin'
+                      OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
+                  )
                   AND NOT EXISTS (SELECT 1 FROM offer_access_links WHERE child_user_id=%s)""",
                 (user_id, user_id, user_id))
             return cur.fetchone() is not None
@@ -285,7 +288,10 @@ class Database:
         with self.connect() as con, con.cursor() as cur:
             cur.execute("""SELECT 1 FROM offer_access_users a
                 WHERE a.user_id=%s AND (a.expires_at IS NULL OR a.expires_at>NOW())
-                  AND EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
+                  AND (
+                      a.source='admin'
+                      OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
+                  )
                   AND NOT EXISTS (SELECT 1 FROM offer_access_links WHERE child_user_id=%s)
                 FOR UPDATE""", (owner_user_id, owner_user_id, owner_user_id))
             if cur.fetchone() is None:
