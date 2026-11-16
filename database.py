@@ -288,18 +288,14 @@ class Database:
             )
 
     def has_paid_primary_access(self, user_id: int) -> bool:
-        """True only for an active entitlement on an account with a confirmed purchase."""
+        """True if user has active access and is not a linked child account."""
         with self.connect() as con, con.cursor() as cur:
+            # Просто проверяем: есть активный доступ И это не твинк
             cur.execute("""SELECT 1 FROM offer_access_users a
-                WHERE a.user_id=%s AND (a.expires_at IS NULL OR a.expires_at>NOW())
-                  AND (
-                      a.source='admin'
-                      OR a.source='admin_paid'
-                      OR a.source='admin_command'
-                      OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
-                  )
+                WHERE a.user_id=%s 
+                  AND (a.expires_at IS NULL OR a.expires_at>NOW())
                   AND NOT EXISTS (SELECT 1 FROM offer_access_links WHERE child_user_id=%s)""",
-                (user_id, user_id, user_id))
+                (user_id, user_id))
             return cur.fetchone() is not None
 
     def link_paid_secondary_account(self, child_user_id: int, owner_user_id: int) -> bool:

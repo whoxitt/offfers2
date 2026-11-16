@@ -1485,6 +1485,43 @@ async def handle_text(message: Message, is_business: bool):
         except Exception as e:
             await reply_message(message, f"❌ Не удалось отправить ответ: {e}")
         return
+    if low.startswith("/поиск") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        parts = text.split(maxsplit=1)
+        if len(parts) != 2:
+            await reply_message(message, "Формат: <code>/поиск @username</code> или <code>/поиск USER_ID</code>\n\nПримеры:\n• <code>/поиск @username</code>\n• <code>/поиск 123456789</code>")
+            return
+        
+        target = parts[1].strip()
+        
+        # Ищем пользователя
+        if target.lstrip("@").isdigit():
+            uid = int(target.lstrip("@"))
+            row = db.admin_user_detail(uid)
+        else:
+            found = db.find_user_by_username(target)
+            if not found:
+                await reply_message(message, "❌ Пользователь не найден. Он должен хотя бы раз запустить бота.")
+                return
+            uid = int(found["user_id"])
+            row = db.admin_user_detail(uid)
+        
+        if not row:
+            await reply_message(message, "❌ Пользователь не найден в базе данных.")
+            return
+        
+        # Формируем информацию
+        text_info = admin_user_detail_text(row)
+        
+        # Кнопки управления
+        buttons = [
+            [InlineKeyboardButton(text="Выдать доступ", callback_data=f"adm:usergrant:{uid}")],
+            [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), 
+             InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
+            [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")]
+        ]
+        
+        await reply_message(message, text_info, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        return
     if low.startswith("/доступ") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         log.info("ACCESS_COMMAND: Received from %s, text: %s", message.from_user.id, text)
         parts = text.split()
