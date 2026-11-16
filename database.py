@@ -74,9 +74,9 @@ class Database:
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ",
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS reminder_sent_at TIMESTAMPTZ",
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'admin'",
+        "DELETE FROM offer_access_users WHERE source='trial'",
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS expiry_admin_reminder_sent_at TIMESTAMPTZ",
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS expired_notified_at TIMESTAMPTZ",
-        "ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS trial_started_at TIMESTAMPTZ",
         "CREATE TABLE IF NOT EXISTS offer_blocked_users (user_id BIGINT PRIMARY KEY)",
         "CREATE TABLE IF NOT EXISTS offer_access_links (child_user_id BIGINT PRIMARY KEY, owner_user_id BIGINT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
         # Upgrade legacy installations too: CREATE TABLE IF NOT EXISTS does not
@@ -205,29 +205,8 @@ class Database:
         with self.connect() as con, con.cursor() as cur:
             cur.execute("""UPDATE offer_access_users SET reminder_sent_at=NOW()
                 WHERE expires_at IS NOT NULL AND expires_at>NOW() AND expires_at<=NOW()+INTERVAL '1 hour'
-                AND reminder_sent_at IS NULL AND source<>'trial' RETURNING user_id,expires_at""")
+                AND reminder_sent_at IS NULL RETURNING user_id,expires_at""")
             return cur.fetchall()
-
-    def grant_trial_if_eligible(self, user_id: int, minutes: int = 20) -> bool:
-        """Give one lifetime trial to a user who currently has no access."""
-        with self.connect() as con, con.cursor() as cur:
-            cur.execute("""UPDATE bot_users SET trial_started_at=NOW(),updated_at=NOW()
-                WHERE user_id=%s AND trial_started_at IS NULL
-                  AND NOT EXISTS (SELECT 1 FROM offer_access_users a
-                                  WHERE a.user_id=%s AND (a.expires_at IS NULL OR a.expires_at>NOW()))
-                RETURNING user_id""", (user_id, user_id))
-            if cur.fetchone() is None:
-                return False
-            cur.execute("""INSERT INTO offer_access_users
-                (user_id,expires_at,reminder_sent_at,expiry_admin_reminder_sent_at,expired_notified_at,source)
-                VALUES(%s,NOW()+(%s * INTERVAL '1 minute'),NULL,NULL,NULL,'trial')
-                ON CONFLICT(user_id) DO UPDATE SET
-                    expires_at=EXCLUDED.expires_at, reminder_sent_at=NULL,
-                    expiry_admin_reminder_sent_at=NULL, expired_notified_at=NULL, source='trial'""",
-                (user_id, max(1, int(minutes))))
-            cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
-            cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
-            return True
 
     def claim_admin_one_hour_reminders(self):
         """Claim admin notifications for access periods ending within one hour."""
@@ -235,7 +214,7 @@ class Database:
             cur.execute("""UPDATE offer_access_users SET expiry_admin_reminder_sent_at=NOW()
                 WHERE expires_at IS NOT NULL AND expires_at>NOW()
                   AND expires_at<=NOW()+INTERVAL '1 hour'
-                  AND expiry_admin_reminder_sent_at IS NULL AND source<>'trial'
+                  AND expiry_admin_reminder_sent_at IS NULL
                 RETURNING user_id,expires_at,source""")
             return cur.fetchall()
 
@@ -288,6 +267,44 @@ class Database:
                 "WHERE user_id=%s",
                 (child_user_id,),
             )
+
+    def has_paid_primary_access(self, user_id: int) -> bool:
+        """True only for an active entitlement on an account with a confirmed purchase."""
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""SELECT 1 FROM offer_access_users a
+                WHERE a.user_id=%s AND (a.expires_at IS NULL OR a.expires_at>NOW())
+                  AND EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
+                  AND NOT EXISTS (SELECT 1 FROM offer_access_links WHERE child_user_id=%s)""",
+                (user_id, user_id, user_id))
+            return cur.fetchone() is not None
+
+    def link_paid_secondary_account(self, child_user_id: int, owner_user_id: int) -> bool:
+        """Atomically link a secondary account directly to its paid primary account."""
+        if child_user_id == owner_user_id:
+            return False
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""SELECT 1 FROM offer_access_users a
+                WHERE a.user_id=%s AND (a.expires_at IS NULL OR a.expires_at>NOW())
+                  AND EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
+                  AND NOT EXISTS (SELECT 1 FROM offer_access_links WHERE child_user_id=%s)
+                FOR UPDATE""", (owner_user_id, owner_user_id, owner_user_id))
+            if cur.fetchone() is None:
+                return False
+            cur.execute("""SELECT 1 FROM offer_access_links WHERE child_user_id=%s
+                UNION ALL
+                SELECT 1 FROM offer_access_users WHERE user_id=%s
+                  AND (expires_at IS NULL OR expires_at>NOW())""",
+                (child_user_id, child_user_id))
+            if cur.fetchone() is not None:
+                return False
+            cur.execute("""INSERT INTO offer_access_links(child_user_id,owner_user_id)
+                VALUES(%s,%s) ON CONFLICT(child_user_id) DO NOTHING""",
+                (child_user_id, owner_user_id))
+            if cur.rowcount != 1:
+                return False
+            cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (child_user_id,))
+            cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (child_user_id,))
+            return True
 
     def get_access_expiry(self, user_id: int):
         owner_id = self.get_access_owner(user_id)
@@ -506,6 +523,9 @@ class Database:
             cur.execute("UPDATE payments SET status='paid',paid_at=NOW() WHERE id=%s AND user_id=%s AND status='pending' RETURNING id", (payment_id, user_id))
             if cur.fetchone() is None:
                 return False
+            # A new purchase on a previously linked secondary account makes this
+            # exact Telegram account its own paid primary account.
+            cur.execute("DELETE FROM offer_access_links WHERE child_user_id=%s", (user_id,))
             cur.execute("""INSERT INTO offer_access_users(user_id,expires_at,reminder_sent_at,source)
                 VALUES(%s,NOW()+(%s * INTERVAL '1 hour'),NULL,'payment')
                 ON CONFLICT(user_id) DO UPDATE SET
@@ -524,6 +544,9 @@ class Database:
             paid_row = cur.fetchone()
             if paid_row is None:
                 return None
+            # A new purchase on a previously linked secondary account makes this
+            # exact Telegram account its own paid primary account.
+            cur.execute("DELETE FROM offer_access_links WHERE child_user_id=%s", (user_id,))
             cur.execute("""INSERT INTO offer_access_users(user_id,expires_at,reminder_sent_at,source)
                 VALUES(%s,NOW()+(%s * INTERVAL '1 hour'),NULL,'payment')
                 ON CONFLICT(user_id) DO UPDATE SET

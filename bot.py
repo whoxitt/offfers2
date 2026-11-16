@@ -41,7 +41,8 @@ awaiting_access_duration = set()
 awaiting_offer_command = set()
 admin_user_queries = {}
 admin_offer_filters = {}
-awaiting_access_recovery = set()  # users currently entering a previously authorized username
+awaiting_access_recovery = set()  # legacy state; child-initiated recovery is disabled
+awaiting_access_transfer = set()  # only the paid primary account can add a secondary account
 pending_access_usernames = {}  # child Telegram ID -> username entered for access recovery
 
 
@@ -542,20 +543,8 @@ async def on_start(message: Message):
         await show_payment_options(message, user.id, pending)
         return
     
-    trial_started = False
-    if user.id != cfg.owner_id and not db.has_access(user.id, cfg.owner_id, cfg.offer_access_mode):
-        try:
-            trial_started = db.grant_trial_if_eligible(user.id, 20)
-        except Exception:
-            log.exception("Could not grant trial access to user_id=%s", user.id)
-    if trial_started:
-        caption = (
-            "<blockquote>Привет, выбери действие</blockquote>\n\n"
-            "🎁 <b>Пробный доступ активирован на 20 минут!</b>\n"
-            "Успей воспользоваться всеми функциями OfferBot."
-        )
-    else:
-        caption = "<blockquote>Привет, выбери действие</blockquote>"
+    # Пробного доступа нет: /start только показывает меню и не меняет подписку.
+    caption = "<blockquote>Привет, выбери действие</blockquote>"
     await send_with_banner(message, caption, reply_markup=main_menu_keyboard(user.id))
 
 
@@ -624,15 +613,15 @@ async def activate_access_callback(call: CallbackQuery):
         return
     user = call.from_user
     db.register_user(user.id, user.username, user.first_name, user.last_name)
-    if db.has_access(user.id, cfg.owner_id, cfg.offer_access_mode):
-        await call.answer("У вас уже есть доступ.", show_alert=True)
+    if db.get_access_owner(user.id) != user.id or not db.has_paid_primary_access(user.id):
+        await call.answer("Передавать доступ может только основной аккаунт, на котором он был куплен.", show_alert=True)
         return
-    awaiting_access_recovery.add(user.id)
+    awaiting_access_transfer.add(user.id)
     await call.message.answer(
-        "🔑 <b>Восстановление доступа</b>\n\n"
-        "Отправь username аккаунта, на котором раньше был доступ к оферам.\n"
-        "Например: <code>@username</code>\n\n"
-        "Чтобы отменить, отправь /cancel."
+        "🔑 <b>Добавление твинка</b>\\n\\n"
+        "Отправь Telegram ID или @username дополнительного аккаунта.\\n"
+        "Твинк получит доступ до той же даты окончания, что и основной аккаунт.\\n\\n"
+        "Отмена: /cancel."
     )
     await call.answer()
 
@@ -645,10 +634,12 @@ async def access_link_yes_callback(call: CallbackQuery):
     if call.from_user.id != owner_uid:
         await call.answer("Этот запрос предназначен другому аккаунту", show_alert=True)
         return
-    if not db.has_access(owner_uid, cfg.owner_id, cfg.offer_access_mode):
-        await call.answer("У вас больше нет активной подписки", show_alert=True)
+    if db.get_access_owner(owner_uid) != owner_uid or not db.has_paid_primary_access(owner_uid):
+        await call.answer("Привязку может подтвердить только аккаунт с собственной покупкой.", show_alert=True)
         return
-    db.link_access_account(child_uid, owner_uid)
+    if not db.link_paid_secondary_account(child_uid, owner_uid):
+        await call.answer("Не удалось привязать: аккаунт уже привязан или имеет собственную активную покупку.", show_alert=True)
+        return
     entered_username = pending_access_usernames.pop(child_uid, None)
     try:
         await bot.send_message(child_uid, "Привязка подтверждена. Вы используете подписку основного аккаунта и тот же срок её окончания.", reply_markup=main_menu_keyboard(child_uid))
@@ -1229,82 +1220,58 @@ async def on_message(message: Message):
     if message.from_user and message.chat.type == "private":
         u = message.from_user
         db.register_user(u.id, u.username, u.first_name, u.last_name)
-        if u.id in awaiting_access_recovery:
+        if u.id in awaiting_access_transfer:
             entered = (message.text or "").strip()
             if entered.lower() == "/cancel":
-                awaiting_access_recovery.discard(u.id)
-                await message.answer("Активация доступа отменена.")
+                awaiting_access_transfer.discard(u.id)
+                await message.answer("Добавление твинка отменено.")
                 return
-            # Accept only a Telegram username, optionally prefixed with @.
-            username = entered.lstrip("@")
-            if not username or not username.replace("_", "").isalnum() or len(username) < 5 or len(username) > 32:
-                await message.answer("❌ Отправь корректный username, например <code>@username</code>. Для отмены: /cancel")
+            if db.get_access_owner(u.id) != u.id or not db.has_paid_primary_access(u.id):
+                awaiting_access_transfer.discard(u.id)
+                await message.answer("❌ Только аккаунт, на котором куплен доступ, может добавлять твинков.")
+                return
+            target = entered.lstrip("@")
+            if target.isdigit():
+                child_uid = int(target)
+                target_user = db.get_user(child_uid)
+            else:
+                if not target or not target.replace("_", "").isalnum() or not 5 <= len(target) <= 32:
+                    await message.answer("Отправь корректный Telegram ID или @username. Для отмены: /cancel")
+                    return
+                target_user = db.find_user_by_username(target)
+                child_uid = int(target_user["user_id"]) if target_user else 0
+            if not child_uid or not target_user:
+                await message.answer("❌ Аккаунт не найден. Он должен хотя бы раз запустить бота. Попробуй ID или username.")
+                return
+            if child_uid == u.id:
+                await message.answer("Это уже основной аккаунт.")
                 return
             try:
-                await bot.send_message(
-                    cfg.owner_id,
-                    "🔎 <b>Пользователь ввёл username для восстановления доступа</b>\\n"
-                    f"Кто ввёл: {display_name(u)} · @{u.username or 'без username'}\\n"
-                    f"Telegram ID: <code>{u.id}</code>\\n"
-                    f"Введённый username: <code>@{username}</code>"
-                )
-            except Exception:
-                log.exception("Could not notify admin about entered access username")
-            try:
-                previous_account = db.find_access_user_by_username(username)
-                if not previous_account:
-                    awaiting_access_recovery.discard(u.id)
-                    await message.answer(
-                        "❌ Не удалось восстановить доступ.\n"
-                        "Аккаунт с таким username не найден среди пользователей, которым ранее выдавался доступ.\n"
-                        "Проверь username и попробуй ещё раз."
-                    )
+                linked = db.link_paid_secondary_account(child_uid, u.id)
+                if not linked:
+                    await message.answer("❌ Не удалось привязать аккаунт: основной аккаунт должен иметь активную покупку, а твинк не должен быть уже привязан или иметь собственную активную покупку.")
                     return
-                owner_uid = int(previous_account["user_id"])
-                if owner_uid == u.id:
-                    awaiting_access_recovery.discard(u.id)
-                    await message.answer("Этот аккаунт уже является основным.", reply_markup=main_menu_keyboard(u.id))
-                    return
-                if db.is_blocked(owner_uid) or not db.has_access(owner_uid, cfg.owner_id, cfg.offer_access_mode):
-                    awaiting_access_recovery.discard(u.id)
-                    await message.answer("У указанного основного аккаунта нет активного доступа. Обратитесь в поддержку.")
-                    return
-                pending_access_usernames[u.id] = username
-                kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="Подтвердить привязку", callback_data=f"access_link_yes:{owner_uid}:{u.id}")],
-                    [InlineKeyboardButton(text="Отклонить", callback_data=f"access_link_no:{owner_uid}:{u.id}")]
-                ])
+                awaiting_access_transfer.discard(u.id)
+                expires = db.get_access_expiry(u.id)
+                expires_text = expires.strftime("%d.%m.%Y %H:%M UTC") if expires else "бессрочно"
                 try:
                     await bot.send_message(
-                        owner_uid,
-                        f"Запрос на привязку дополнительного аккаунта: @{u.username or 'username не указан'}\nID: <code>{u.id}</code>\n\nРазрешить использовать вашу подписку?",
-                        reply_markup=kb,
+                        child_uid,
+                        "✅ <b>Доступ активирован</b>\\n\\n"
+                        "Ваш аккаунт привязан к основному аккаунту. Доступ действует до той же даты окончания, что и у основного аккаунта.",
+                        reply_markup=main_menu_keyboard(child_uid),
                     )
-                except (TelegramBadRequest, TelegramForbiddenError) as send_error:
-                    # The owner may never have opened this bot, or may have blocked it.
-                    # This is a Telegram delivery problem, not a database failure.
-                    pending_access_usernames.pop(u.id, None)
-                    awaiting_access_recovery.discard(u.id)
-                    log.warning(
-                        "ACCESS_LINK_DELIVERY_FAILED child=%s owner=%s username=%s error=%s",
-                        u.id, owner_uid, username, send_error,
-                    )
-                    await message.answer(
-                        "✅ Основной аккаунт найден, и активный доступ подтверждён.\n\n"
-                        "Но Telegram не позволяет отправить ему запрос на подтверждение. "
-                        "Попроси владельца основного аккаунта открыть этого бота и нажать /start "
-                        "(либо разблокировать бота), затем повтори привязку.\n\n"
-                        "Доступ и подписка основного аккаунта не изменены."
-                    )
-                    return
-                awaiting_access_recovery.discard(u.id)
-                await message.answer("Запрос отправлен на основной аккаунт. Доступ появится только после подтверждения владельцем.")
-                log.info("ACCESS_LINK_REQUEST child=%s owner=%s username=%s", u.id, owner_uid, username)
-            except Exception as exc:
-                awaiting_access_recovery.discard(u.id)
-                pending_access_usernames.pop(u.id, None)
-                log.exception("Access recovery DB/check failed: child_user_id=%s username=%s error=%s", u.id, username, exc)
-                await message.answer("❌ Не удалось проверить данные доступа из-за внутренней ошибки. Ошибка записана в журнал бота; попробуй позже или обратись в поддержку.")
+                except Exception:
+                    log.exception("Could not notify secondary account %s", child_uid)
+                await message.answer(
+                    f"✅ Твинк <code>{child_uid}</code> привязан.\\n"
+                    f"Окончание доступа: <b>{expires_text}</b>.",
+                    reply_markup=main_menu_keyboard(u.id),
+                )
+                log.info("ACCESS_LINK_CREATED primary=%s secondary=%s", u.id, child_uid)
+            except Exception:
+                log.exception("Could not link secondary account primary=%s secondary=%s", u.id, child_uid)
+                await message.answer("❌ Внутренняя ошибка при привязке. Доступ основного аккаунта не изменён; попробуй позже.")
             return
         if u.id in awaiting_support:
             if (message.text or "").strip().lower() == "/cancel":
@@ -1323,6 +1290,26 @@ async def on_message(message: Message):
             return
     await handle_text(message, False)
 
+
+
+
+def parse_access_duration(raw: str) -> float:
+    """Parse duration into hours. Supports 48, 48h, 7d, 30m and Russian units."""
+    value = raw.strip().lower().replace(",", ".")
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)(ч|час(?:а|ов)?|h|hr|hrs|д|дн(?:я|ей)?|d|м|мин(?:ут(?:а|ы)?)?|m|min)?", value)
+    if not match:
+        raise ValueError("invalid duration")
+    amount = float(match.group(1))
+    unit = match.group(2) or "h"
+    if amount <= 0:
+        raise ValueError("duration must be positive")
+    if unit in {"д", "дн", "дня", "дней", "d"}:
+        amount *= 24
+    elif unit in {"м", "мин", "минута", "минуты", "минут", "m", "min"}:
+        amount /= 60
+    if amount > 8760:
+        raise ValueError("duration too long")
+    return amount
 
 async def handle_text(message: Message, is_business: bool):
     text = (message.text or "").strip()
@@ -1432,20 +1419,33 @@ async def handle_text(message: Message, is_business: bool):
         except Exception as e:
             await reply_message(message, f"❌ Не удалось отправить ответ: {e}")
         return
-    if low.startswith("/allow ") and message.from_user and message.from_user.id == cfg.owner_id:
-        target = text.split(maxsplit=1)[1].strip()
+    if low.startswith("/allow") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        parts = text.split()
+        if len(parts) != 3:
+            await reply_message(message, "Формат: <code>/allow @username время</code> или <code>/allow USER_ID время</code>.\\nПримеры: <code>/allow @username 48h</code>, <code>/allow 123456789 7d</code>.")
+            return
+        target, duration_raw = parts[1], parts[2]
+        try:
+            hours = parse_access_duration(duration_raw)
+        except ValueError:
+            await reply_message(message, "❌ Укажи срок от 1 минуты до 365 дней: например <code>48h</code>, <code>7d</code> или <code>30m</code>.")
+            return
         if target.lstrip("@").isdigit():
             uid = int(target.lstrip("@"))
         else:
             found = db.find_user_by_username(target)
             if not found:
-                await reply_message(message, "❌ Не нашёл пользователя. Он должен хотя бы раз запустить бота (/start), а username нужно указать как @username.")
+                await reply_message(message, "❌ Пользователь не найден. Он должен хотя бы раз запустить бота.")
                 return
-            uid = int(found['user_id'])
-        await admin_allow(uid)
-        try: await bot.send_message(uid, "Вам выдан доступ к OfferBot.")
-        except Exception: pass
-        await reply_message(message, f"Доступ выдан пользователю <code>{uid}</code>.")
+            uid = int(found["user_id"])
+        db.grant_timed_access(uid, hours, "admin")
+        db.unblock_offer_user(uid)
+        db.log_admin_action(cfg.owner_id, "grant_timed_access", uid, f"hours={hours:g}")
+        try:
+            await bot.send_message(uid, f"✅ Вам выдан доступ к OfferBot на {duration_raw}.")
+        except Exception:
+            pass
+        await reply_message(message, f"✅ Доступ выдан пользователю <code>{uid}</code> на <b>{duration_raw}</b>.")
         return
     if low.startswith("/block ") and message.from_user and message.from_user.id == cfg.owner_id:
         await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "Пользователь заблокирован."); return
@@ -1921,11 +1921,11 @@ async def admin_callback(call: CallbackQuery):
 
     if action == "allow_username":
         await call.answer()
-        await call.message.answer("Чтобы выдать доступ по username, отправь команду: <code>/allow @username</code>. Пользователь должен хотя бы раз запустить бота.")
+        await call.message.answer("Чтобы выдать доступ по username, отправь команду: <code>/allow @username 48h</code>. Пользователь должен хотя бы раз запустить бота.")
         return
     if action == "allow_id":
         await call.answer()
-        await call.message.answer("Чтобы выдать доступ по Telegram ID, отправь команду: <code>/allow 123456789</code>.")
+        await call.message.answer("Чтобы выдать доступ по Telegram ID, отправь команду: <code>/allow 123456789 7d</code>.")
         return
     if action == "allow":
         uid = offset
@@ -2130,7 +2130,7 @@ async def access_reminder_job():
                 username = (user_row or {}).get("username") if user_row else None
                 name = (user_row or {}).get("first_name") if user_row else None
                 identity = f"@{username}" if username else (name or "Без имени")
-                source = "Пробный период" if row.get("source") == "trial" else "Платный/выданный доступ"
+                source = "Платный/выданный доступ"
                 try:
                     await bot.send_message(
                         cfg.owner_id,
@@ -2152,7 +2152,7 @@ async def access_reminder_job():
                 username = (user_row or {}).get("username") if user_row else None
                 name = (user_row or {}).get("first_name") if user_row else None
                 identity = f"@{username}" if username else (name or "Без имени")
-                source = "Пробный период" if row.get("source") == "trial" else "Платный/выданный доступ"
+                source = "Платный/выданный доступ"
                 try:
                     await bot.send_message(
                         cfg.owner_id,
