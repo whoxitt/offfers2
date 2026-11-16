@@ -33,7 +33,7 @@ def parse_offer(text: str, command_prefix: str = "ху"):
     """
     command_prefix = (command_prefix or "ху").strip().lstrip(".")
     # Дополнительные короткие команды офера с вариантами текста.
-    alias_match = re.match(r'^\.?фу([1-3])?(?=\s|$)', text.strip(), re.I)
+    alias_match = re.match(r'^\.?фу([1-5])?(?=\s|$)', text.strip(), re.I)
     if alias_match:
         alias = "фу" + (alias_match.group(1) or "")
         remainder = text.strip()[alias_match.end():].strip()
