@@ -204,7 +204,7 @@ class Database:
         """Grant access as if it was purchased - allows linking secondary accounts."""
         with self.connect() as con, con.cursor() as cur:
             # Удаляем старую связь если была (делаем основным аккаунтом)
-            cur.execute("DELETE FROM offer_access_links WHERE secondary_user_id=%s", (user_id,))
+            cur.execute("DELETE FROM offer_access_links WHERE child_user_id=%s", (user_id,))
             
             # Выдаем доступ как "купленный"
             cur.execute("""INSERT INTO offer_access_users(user_id,expires_at,reminder_sent_at,source)
