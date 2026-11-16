@@ -232,6 +232,27 @@ class Database:
             
             return deleted_as_child + deleted_as_owner
 
+    def cleanup_all_orphaned_links(self) -> int:
+        """Remove all orphaned access links (where owner/child no longer has active access)."""
+        with self.connect() as con, con.cursor() as cur:
+            # Удаляем все старые привязки где owner больше не имеет активного доступа
+            cur.execute("""DELETE FROM offer_access_links 
+                WHERE owner_user_id NOT IN (
+                    SELECT user_id FROM offer_access_users 
+                    WHERE expires_at IS NULL OR expires_at > NOW()
+                )""")
+            orphaned_owners = cur.rowcount
+            
+            # Удаляем все привязки где child сам получил доступ
+            cur.execute("""DELETE FROM offer_access_links 
+                WHERE child_user_id IN (
+                    SELECT user_id FROM offer_access_users 
+                    WHERE expires_at IS NULL OR expires_at > NOW()
+                )""")
+            children_with_access = cur.rowcount
+            
+            return orphaned_owners + children_with_access
+
     def claim_one_hour_reminders(self):
         """Atomically claim reminders due within the next hour, once per access period."""
         with self.connect() as con, con.cursor() as cur:
@@ -316,25 +337,27 @@ class Database:
         if child_user_id == owner_user_id:
             return False
         with self.connect() as con, con.cursor() as cur:
+            # Проверяем что у владельца есть активный доступ и он не твинк
             cur.execute("""SELECT 1 FROM offer_access_users a
                 WHERE a.user_id=%s AND (a.expires_at IS NULL OR a.expires_at>NOW())
-                  AND (
-                      a.source='admin'
-                      OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
-                  )
                   AND NOT EXISTS (SELECT 1 FROM offer_access_links WHERE child_user_id=%s)
-                FOR UPDATE""", (owner_user_id, owner_user_id, owner_user_id))
+                FOR UPDATE""", (owner_user_id, owner_user_id))
             if cur.fetchone() is None:
                 return False
-            cur.execute("""SELECT 1 FROM offer_access_links WHERE child_user_id=%s
-                UNION ALL
-                SELECT 1 FROM offer_access_users WHERE user_id=%s
+            
+            # Проверяем что у child нет своего активного доступа
+            cur.execute("""SELECT 1 FROM offer_access_users WHERE user_id=%s
                   AND (expires_at IS NULL OR expires_at>NOW())""",
-                (child_user_id, child_user_id))
+                (child_user_id,))
             if cur.fetchone() is not None:
                 return False
+            
+            # Удаляем любые старые привязки child (если были)
+            cur.execute("DELETE FROM offer_access_links WHERE child_user_id=%s", (child_user_id,))
+            
+            # Создаём новую привязку
             cur.execute("""INSERT INTO offer_access_links(child_user_id,owner_user_id)
-                VALUES(%s,%s) ON CONFLICT(child_user_id) DO NOTHING""",
+                VALUES(%s,%s)""",
                 (child_user_id, owner_user_id))
             if cur.rowcount != 1:
                 return False
@@ -754,13 +777,23 @@ class Database:
                 ORDER BY a.expires_at ASC LIMIT %s OFFSET %s""", (hours,max(1,min(int(limit),20)),max(0,int(offset))))
             return cur.fetchall()
 
-    def admin_payments(self, limit: int = 8, offset: int = 0):
+    def admin_payments(self, limit: int = 8, offset: int = 0, status_filter: str = "all"):
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("""
+            if status_filter == "paid":
+                where_clause = "WHERE p.status = 'paid'"
+            elif status_filter == "pending":
+                where_clause = "WHERE p.status = 'pending'"
+            elif status_filter == "cancelled":
+                where_clause = "WHERE p.status = 'cancelled'"
+            else:
+                where_clause = ""
+            
+            cur.execute(f"""
                 SELECT p.id, p.user_id, p.amount, p.status, p.provider, p.created_at, p.paid_at, p.memo,
                        u.username, u.first_name, u.last_name
                 FROM payments p
                 LEFT JOIN bot_users u ON p.user_id = u.user_id
+                {where_clause}
                 ORDER BY p.created_at DESC
                 LIMIT %s OFFSET %s
             """, (max(1,min(int(limit),20)),max(0,int(offset))))

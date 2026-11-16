@@ -1635,6 +1635,23 @@ async def handle_text(message: Message, is_business: bool):
         await reply_message(message, f"✅ Доступ выдан пользователю <code>{uid}</code> на <b>{duration_raw}</b>.")
         log.info("ACCESS_COMMAND: success response sent")
         return
+    
+    # Команда /сброс олд - удаление всех старых привязок
+    if low.startswith("/сброс олд") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        log.info("CLEANUP_OLD_LINKS: Starting cleanup of orphaned links")
+        try:
+            deleted_count = db.cleanup_all_orphaned_links()
+            log.info("CLEANUP_OLD_LINKS: Deleted %d orphaned links", deleted_count)
+            await reply_message(message, f"✅ Удалено старых привязок: <b>{deleted_count}</b>\n\n"
+                                         f"Удалены все привязки где:\n"
+                                         f"• Владелец больше не имеет активного доступа\n"
+                                         f"• Твинк сам получил активный доступ")
+            db.log_admin_action(cfg.owner_id, "cleanup_orphaned_links", None, f"deleted={deleted_count}")
+        except Exception as e:
+            log.error("CLEANUP_OLD_LINKS: Error: %s", e, exc_info=True)
+            await reply_message(message, f"❌ Ошибка при удалении старых привязок: {e}")
+        return
+    
     if low.startswith("/block ") and message.from_user and message.from_user.id == cfg.owner_id:
         await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "Пользователь заблокирован."); return
     if low.startswith("/unblock ") and message.from_user and message.from_user.id == cfg.owner_id:
@@ -1955,9 +1972,19 @@ async def admin_callback(call: CallbackQuery):
         await call.message.edit_text(text, reply_markup=admin_back_keyboard("offers")); await call.answer(); return
 
     if action == "payments":
-        rows=db.admin_payments(8,offset)
-        lines=["<b>Платежи</b>", ""]
+        # Обработка фильтра
+        if raw_arg in {"all", "paid", "pending", "cancelled"}:
+            admin_offer_filters[f"{cfg.owner_id}_payments"] = raw_arg
+            offset = 0
+        status_filter = admin_offer_filters.get(f"{cfg.owner_id}_payments", "all")
+        
+        rows=db.admin_payments(8, offset, status_filter)
+        
+        # Заголовок с фильтром
+        filter_labels = {"all": "все", "paid": "оплачены", "pending": "ожидают", "cancelled": "отменены"}
+        lines=[f"<b>Платежи · {filter_labels.get(status_filter, status_filter)}</b>", ""]
         buttons=[]
+        
         for r in rows:
             # Конвертируем время в МСК
             msk_time = to_msk(r.get('created_at'))
@@ -1969,12 +1996,62 @@ async def admin_callback(call: CallbackQuery):
             
             lines.append(f"#{r['id']} · {user_display} · {r['amount']:g} TON · {r['status']} · {stamp} МСК")
             buttons.append([InlineKeyboardButton(text=f"Платёж #{r['id']} · {r['amount']:g} TON", callback_data=f"adm:payment:{r['id']}")])
+        
         if not rows: lines.append("Платежей пока нет.")
+        
+        # Кнопки фильтров
+        filter_buttons = [
+            InlineKeyboardButton(text="Все", callback_data="adm:payments:all"),
+            InlineKeyboardButton(text="Оплачены", callback_data="adm:payments:paid"),
+            InlineKeyboardButton(text="Ожидают", callback_data="adm:payments:pending"),
+            InlineKeyboardButton(text="Отменены", callback_data="adm:payments:cancelled")
+        ]
+        buttons.insert(0, filter_buttons)
+        
+        # Навигация
         nav=[]
-        if offset: nav.append(InlineKeyboardButton(text="Предыдущая", callback_data=f"adm:payments:{max(0,offset-8)}"))
-        if len(rows)==8: nav.append(InlineKeyboardButton(text="Следующая", callback_data=f"adm:payments:{offset+8}"))
+        if offset: nav.append(InlineKeyboardButton(text="Предыдущая", callback_data=f"adm:paymentpage:{max(0,offset-8)}"))
+        if len(rows)==8: nav.append(InlineKeyboardButton(text="Следующая", callback_data=f"adm:paymentpage:{offset+8}"))
         if nav: buttons.append(nav)
+        
         buttons.append([InlineKeyboardButton(text="Назад", callback_data="adm:home:0")])
+        await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
+
+    if action == "paymentpage":
+        # Навигация по платежам с сохранением фильтра
+        status_filter = admin_offer_filters.get(f"{cfg.owner_id}_payments", "all")
+        rows=db.admin_payments(8, offset, status_filter)
+        
+        filter_labels = {"all": "все", "paid": "оплачены", "pending": "ожидают", "cancelled": "отменены"}
+        lines=[f"<b>Платежи · {filter_labels.get(status_filter, status_filter)}</b>", ""]
+        buttons=[]
+        
+        for r in rows:
+            msk_time = to_msk(r.get('created_at'))
+            stamp = msk_time.strftime('%d.%m %H:%M') if msk_time else '—'
+            username = f"@{r['username']}" if r.get('username') else ""
+            name = " ".join(x for x in [r.get('first_name'), r.get('last_name')] if x) or ""
+            user_display = username if username else (name if name else f"ID {r['user_id']}")
+            
+            lines.append(f"#{r['id']} · {user_display} · {r['amount']:g} TON · {r['status']} · {stamp} МСК")
+            buttons.append([InlineKeyboardButton(text=f"Платёж #{r['id']} · {r['amount']:g} TON", callback_data=f"adm:payment:{r['id']}")])
+        
+        if not rows: lines.append("Платежей пока нет.")
+        
+        filter_buttons = [
+            InlineKeyboardButton(text="Все", callback_data="adm:payments:all"),
+            InlineKeyboardButton(text="Оплачены", callback_data="adm:payments:paid"),
+            InlineKeyboardButton(text="Ожидают", callback_data="adm:payments:pending"),
+            InlineKeyboardButton(text="Отменены", callback_data="adm:payments:cancelled")
+        ]
+        buttons.insert(0, filter_buttons)
+        
+        nav=[]
+        if offset: nav.append(InlineKeyboardButton(text="Предыдущая", callback_data=f"adm:paymentpage:{max(0,offset-8)}"))
+        if len(rows)==8: nav.append(InlineKeyboardButton(text="Следующая", callback_data=f"adm:paymentpage:{offset+8}"))
+        if nav: buttons.append(nav)
+        
+        buttons.append([InlineKeyboardButton(text="Назад", callback_data="adm:payments:all")])
         await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
 
     if action == "payment":
