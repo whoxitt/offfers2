@@ -1371,7 +1371,18 @@ async def handle_text(message: Message, is_business: bool):
         return
     if low == "тест7":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пользователь {seller_name} предлагает Вам 100₽ за подарок")
+        # Обход через HTML entities и латинские буквы: о->&#1086;, е->e (латинская), а->a (латинская)
+        await test_send(message, is_business, f"П&#1086;льз&#1086;вaтeль {seller_name} прeдлaгaeт Вaм 100₽ зa п&#1086;дaр&#1086;к")
+        return
+    if low == "тест77":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Без слова "Пользователь"
+        await test_send(message, is_business, f"{seller_name} предлагает Вам 100₽ за подарок")
+        return
+    if low == "тест777":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Без слова "предлагает"
+        await test_send(message, is_business, f"Пользователь {seller_name} Вам 100₽ за подарок")
         return
     if low == "тест8":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
