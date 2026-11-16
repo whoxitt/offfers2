@@ -295,6 +295,7 @@ class Database:
                   AND (
                       a.source='admin'
                       OR a.source='admin_paid'
+                      OR a.source='admin_command'
                       OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
                   )
                   AND NOT EXISTS (SELECT 1 FROM offer_access_links WHERE child_user_id=%s)""",

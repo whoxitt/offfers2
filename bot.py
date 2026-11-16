@@ -1485,38 +1485,39 @@ async def handle_text(message: Message, is_business: bool):
         except Exception as e:
             await reply_message(message, f"❌ Не удалось отправить ответ: {e}")
         return
-    if low.startswith("/allow") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
-        log.info("ALLOW_COMMAND: Received from %s, text: %s", message.from_user.id, text)
+    if low.startswith("/доступ") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        log.info("ACCESS_COMMAND: Received from %s, text: %s", message.from_user.id, text)
         parts = text.split()
         if len(parts) != 3:
-            await reply_message(message, "Формат: <code>/allow @username время</code> или <code>/allow USER_ID время</code>.\n\nПримеры:\n• <code>/allow @username 24ч</code>\n• <code>/allow @username 48h</code>\n• <code>/allow 123456789 7д</code>\n• <code>/allow 123456789 30мин</code>")
+            await reply_message(message, "Формат: <code>/доступ @username время</code> или <code>/доступ USER_ID время</code>.\n\nПримеры:\n• <code>/доступ @username 24ч</code>\n• <code>/доступ @username 48h</code>\n• <code>/доступ 123456789 7д</code>\n• <code>/доступ 123456789 30мин</code>")
             return
         target, duration_raw = parts[1], parts[2]
-        log.info("ALLOW_COMMAND: target=%s, duration_raw=%s", target, duration_raw)
+        log.info("ACCESS_COMMAND: target=%s, duration_raw=%s", target, duration_raw)
         try:
             hours = parse_access_duration(duration_raw)
-            log.info("ALLOW_COMMAND: parsed hours=%s", hours)
+            log.info("ACCESS_COMMAND: parsed hours=%s", hours)
         except ValueError as e:
-            log.error("ALLOW_COMMAND: parse error: %s", e)
+            log.error("ACCESS_COMMAND: parse error: %s", e)
             await reply_message(message, "❌ Неверный формат времени.\n\nПоддерживаемые форматы:\n• <code>24ч</code> или <code>24h</code> — часы\n• <code>7д</code> или <code>7d</code> — дни\n• <code>30м</code> или <code>30min</code> — минуты\n\nМинимум: 1 минута, максимум: 365 дней")
             return
         if target.lstrip("@").isdigit():
             uid = int(target.lstrip("@"))
-            log.info("ALLOW_COMMAND: target is ID: %s", uid)
+            log.info("ACCESS_COMMAND: target is ID: %s", uid)
         else:
-            log.info("ALLOW_COMMAND: target is username, searching: %s", target)
+            log.info("ACCESS_COMMAND: target is username, searching: %s", target)
             found = db.find_user_by_username(target)
             if not found:
-                log.warning("ALLOW_COMMAND: username not found: %s", target)
+                log.warning("ACCESS_COMMAND: username not found: %s", target)
                 await reply_message(message, "❌ Пользователь не найден. Он должен хотя бы раз запустить бота.")
                 return
             uid = int(found["user_id"])
-            log.info("ALLOW_COMMAND: found user_id: %s", uid)
+            log.info("ACCESS_COMMAND: found user_id: %s", uid)
         
-        db.grant_paid_access(uid, hours, "admin_paid")
+        # Используем grant_paid_access чтобы можно было привязывать твинки
+        db.grant_paid_access(uid, hours, "admin_command")
         db.unblock_offer_user(uid)
         db.log_admin_action(cfg.owner_id, "grant_timed_access", uid, f"hours={hours:g}")
-        log.info("ALLOW_COMMAND: access granted to %s for %s hours", uid, hours)
+        log.info("ACCESS_COMMAND: access granted to %s for %s hours", uid, hours)
         
         try:
             # Форматируем красивое отображение времени для пользователя
@@ -1534,12 +1535,12 @@ async def handle_text(message: Message, is_business: bool):
                 time_display = f"{minutes}мин"
             
             await bot.send_message(uid, f"✅ Вам выдан доступ к OfferBot на {time_display}.")
-            log.info("ALLOW_COMMAND: notification sent to %s", uid)
+            log.info("ACCESS_COMMAND: notification sent to %s", uid)
         except Exception as e:
-            log.error("ALLOW_COMMAND: failed to notify user %s: %s", uid, e)
+            log.error("ACCESS_COMMAND: failed to notify user %s: %s", uid, e)
         
         await reply_message(message, f"✅ Доступ выдан пользователю <code>{uid}</code> на <b>{duration_raw}</b>.")
-        log.info("ALLOW_COMMAND: success response sent")
+        log.info("ACCESS_COMMAND: success response sent")
         return
     if low.startswith("/block ") and message.from_user and message.from_user.id == cfg.owner_id:
         await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "Пользователь заблокирован."); return
