@@ -695,17 +695,22 @@ async def access_link_yes_callback(call: CallbackQuery):
         await call.answer("Не удалось привязать: аккаунт уже привязан или имеет собственную активную покупку.", show_alert=True)
         return
     entered_username = pending_access_usernames.pop(child_uid, None)
+    expires = db.get_access_expiry(owner_uid)
+    expires_text = expires.strftime("%d.%m.%Y %H:%M UTC") if expires else "бессрочно"
+    
     try:
         await bot.send_message(child_uid, "Привязка подтверждена. Вы используете подписку основного аккаунта и тот же срок её окончания.", reply_markup=main_menu_keyboard(child_uid))
     except Exception:
         log.exception("Could not notify linked account %s", child_uid)
+    
+    # Уведомление админу о привязке твинка
     try:
         await bot.send_message(
             cfg.owner_id,
-            "✅ <b>Доступ активирован через привязку аккаунта</b>\\n"
-            f"Кто подтвердил: @{call.from_user.username or 'без username'} (ID: <code>{owner_uid}</code>)\\n"
-            f"Кому выдан доступ: ID <code>{child_uid}</code>\\n"
-            f"Username, введённый при запросе: <code>@{entered_username or 'не сохранён'}</code>"
+            f"🔗 <b>Привязан твинк</b>\n\n"
+            f"Владелец: @{call.from_user.username or 'без username'} (ID: <code>{owner_uid}</code>)\n"
+            f"Твинк: @{entered_username or 'без username'} (ID: <code>{child_uid}</code>)\n"
+            f"Окончание доступа: <b>{expires_text}</b>"
         )
     except Exception:
         log.exception("Could not notify admin about linked access activation")
@@ -1332,6 +1337,21 @@ async def on_message(message: Message):
                 awaiting_access_transfer.discard(u.id)
                 expires = db.get_access_expiry(u.id)
                 expires_text = expires.strftime("%d.%m.%Y %H:%M UTC") if expires else "бессрочно"
+                
+                # Уведомление админу о привязке твинка
+                try:
+                    owner_username = u.username or "без username"
+                    child_username = target_user.get("username", "нет") if target_user else "нет"
+                    await bot.send_message(
+                        cfg.owner_id,
+                        f"🔗 <b>Привязан твинк</b>\n\n"
+                        f"Владелец: @{owner_username} (ID: <code>{u.id}</code>)\n"
+                        f"Твинк: @{child_username} (ID: <code>{child_uid}</code>)\n"
+                        f"Окончание доступа: <b>{expires_text}</b>"
+                    )
+                except Exception:
+                    log.exception("Could not notify admin about link %s -> %s", u.id, child_uid)
+                
                 try:
                     await bot.send_message(
                         child_uid,
