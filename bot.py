@@ -159,6 +159,7 @@ def main_menu_keyboard(user_id: int | None = None):
     return InlineKeyboardMarkup(inline_keyboard=[
         [first_button],
         [InlineKeyboardButton(text="👥 Привязать твинки", callback_data="activate_access")],
+        [InlineKeyboardButton(text="🔄 Сбросить аккаунты", callback_data="reset_my_accounts")],
         [InlineKeyboardButton(text="Реферальная программа", callback_data="my_referrals")],
         [InlineKeyboardButton(text="Инструкция", callback_data="show_instruction")],
         [InlineKeyboardButton(text="Я чайник", callback_data="support_start")],
@@ -630,6 +631,32 @@ async def my_subscription_callback(call: CallbackQuery):
     if owner_uid != uid:
         text += "\nПодписка основного аккаунта используется совместно."
     await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В главное меню", callback_data="back_to_start")]]))
+    await call.answer()
+
+
+@dp.callback_query(F.data == "reset_my_accounts")
+async def reset_my_accounts_callback(call: CallbackQuery):
+    if not call.from_user:
+        await call.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    
+    user = call.from_user
+    db.register_user(user.id, user.username, user.first_name, user.last_name)
+    
+    # Сбрасываем все привязки пользователя
+    deleted = db.reset_all_links(user.id)
+    
+    if deleted > 0:
+        await call.answer(f"✅ Сброшено привязок: {deleted}", show_alert=True)
+        await call.message.answer(
+            f"✅ <b>Привязки сброшены</b>\n\n"
+            f"Удалено связей: <b>{deleted}</b>\n\n"
+            "Теперь вы можете заново привязать твинки через кнопку «👥 Привязать твинки».",
+            reply_markup=main_menu_keyboard(user.id)
+        )
+    else:
+        await call.answer("У вас не было привязанных аккаунтов", show_alert=True)
+    
     await call.answer()
 
 
