@@ -726,7 +726,14 @@ class Database:
 
     def admin_payments(self, limit: int = 8, offset: int = 0):
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("SELECT id,user_id,amount,status,provider,created_at,paid_at,memo FROM payments ORDER BY created_at DESC LIMIT %s OFFSET %s", (max(1,min(int(limit),20)),max(0,int(offset))))
+            cur.execute("""
+                SELECT p.id, p.user_id, p.amount, p.status, p.provider, p.created_at, p.paid_at, p.memo,
+                       u.username, u.first_name, u.last_name
+                FROM payments p
+                LEFT JOIN bot_users u ON p.user_id = u.user_id
+                ORDER BY p.created_at DESC
+                LIMIT %s OFFSET %s
+            """, (max(1,min(int(limit),20)),max(0,int(offset))))
             return cur.fetchall()
 
     def admin_referrals(self, limit: int = 8, offset: int = 0):

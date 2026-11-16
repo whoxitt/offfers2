@@ -1782,7 +1782,12 @@ async def admin_callback(call: CallbackQuery):
         buttons=[]
         for r in rows:
             stamp=r['created_at'].strftime('%d.%m %H:%M') if r.get('created_at') else '—'
-            lines.append(f"#{r['id']} · <code>{r['user_id']}</code> · {r['amount']:g} TON · {r['status']} · {stamp}")
+            # Формируем отображаемое имя
+            username = f"@{r['username']}" if r.get('username') else ""
+            name = " ".join(x for x in [r.get('first_name'), r.get('last_name')] if x) or ""
+            user_display = username if username else (name if name else f"ID {r['user_id']}")
+            
+            lines.append(f"#{r['id']} · {user_display} · {r['amount']:g} TON · {r['status']} · {stamp}")
             buttons.append([InlineKeyboardButton(text=f"Платёж #{r['id']} · {r['amount']:g} TON", callback_data=f"adm:payment:{r['id']}")])
         if not rows: lines.append("Платежей пока нет.")
         nav=[]
