@@ -4,7 +4,7 @@ import html
 import uuid
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -44,6 +44,16 @@ admin_offer_filters = {}
 awaiting_access_recovery = set()  # legacy state; child-initiated recovery is disabled
 awaiting_access_transfer = set()  # only the paid primary account can add a secondary account
 pending_access_usernames = {}  # child Telegram ID -> username entered for access recovery
+
+
+def to_msk(dt):
+    """Конвертирует datetime в московское время (UTC+3)"""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    msk_tz = timezone(timedelta(hours=3))
+    return dt.astimezone(msk_tz)
 
 
 def get_offer_command() -> str:
@@ -1475,27 +1485,38 @@ async def handle_text(message: Message, is_business: bool):
             await reply_message(message, f"❌ Не удалось отправить ответ: {e}")
         return
     if low.startswith("/allow") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        log.info("ALLOW_COMMAND: Received from %s, text: %s", message.from_user.id, text)
         parts = text.split()
         if len(parts) != 3:
             await reply_message(message, "Формат: <code>/allow @username время</code> или <code>/allow USER_ID время</code>.\n\nПримеры:\n• <code>/allow @username 24ч</code>\n• <code>/allow @username 48h</code>\n• <code>/allow 123456789 7д</code>\n• <code>/allow 123456789 30мин</code>")
             return
         target, duration_raw = parts[1], parts[2]
+        log.info("ALLOW_COMMAND: target=%s, duration_raw=%s", target, duration_raw)
         try:
             hours = parse_access_duration(duration_raw)
-        except ValueError:
+            log.info("ALLOW_COMMAND: parsed hours=%s", hours)
+        except ValueError as e:
+            log.error("ALLOW_COMMAND: parse error: %s", e)
             await reply_message(message, "❌ Неверный формат времени.\n\nПоддерживаемые форматы:\n• <code>24ч</code> или <code>24h</code> — часы\n• <code>7д</code> или <code>7d</code> — дни\n• <code>30м</code> или <code>30min</code> — минуты\n\nМинимум: 1 минута, максимум: 365 дней")
             return
         if target.lstrip("@").isdigit():
             uid = int(target.lstrip("@"))
+            log.info("ALLOW_COMMAND: target is ID: %s", uid)
         else:
+            log.info("ALLOW_COMMAND: target is username, searching: %s", target)
             found = db.find_user_by_username(target)
             if not found:
+                log.warning("ALLOW_COMMAND: username not found: %s", target)
                 await reply_message(message, "❌ Пользователь не найден. Он должен хотя бы раз запустить бота.")
                 return
             uid = int(found["user_id"])
+            log.info("ALLOW_COMMAND: found user_id: %s", uid)
+        
         db.grant_timed_access(uid, hours, "admin")
         db.unblock_offer_user(uid)
         db.log_admin_action(cfg.owner_id, "grant_timed_access", uid, f"hours={hours:g}")
+        log.info("ALLOW_COMMAND: access granted to %s for %s hours", uid, hours)
+        
         try:
             # Форматируем красивое отображение времени для пользователя
             if hours >= 24:
@@ -1512,9 +1533,12 @@ async def handle_text(message: Message, is_business: bool):
                 time_display = f"{minutes}мин"
             
             await bot.send_message(uid, f"✅ Вам выдан доступ к OfferBot на {time_display}.")
-        except Exception:
-            pass
+            log.info("ALLOW_COMMAND: notification sent to %s", uid)
+        except Exception as e:
+            log.error("ALLOW_COMMAND: failed to notify user %s: %s", uid, e)
+        
         await reply_message(message, f"✅ Доступ выдан пользователю <code>{uid}</code> на <b>{duration_raw}</b>.")
+        log.info("ALLOW_COMMAND: success response sent")
         return
     if low.startswith("/block ") and message.from_user and message.from_user.id == cfg.owner_id:
         await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "Пользователь заблокирован."); return
@@ -1801,13 +1825,15 @@ async def admin_callback(call: CallbackQuery):
         lines=["<b>Платежи</b>", ""]
         buttons=[]
         for r in rows:
-            stamp=r['created_at'].strftime('%d.%m %H:%M') if r.get('created_at') else '—'
+            # Конвертируем время в МСК
+            msk_time = to_msk(r.get('created_at'))
+            stamp = msk_time.strftime('%d.%m %H:%M') if msk_time else '—'
             # Формируем отображаемое имя
             username = f"@{r['username']}" if r.get('username') else ""
             name = " ".join(x for x in [r.get('first_name'), r.get('last_name')] if x) or ""
             user_display = username if username else (name if name else f"ID {r['user_id']}")
             
-            lines.append(f"#{r['id']} · {user_display} · {r['amount']:g} TON · {r['status']} · {stamp}")
+            lines.append(f"#{r['id']} · {user_display} · {r['amount']:g} TON · {r['status']} · {stamp} МСК")
             buttons.append([InlineKeyboardButton(text=f"Платёж #{r['id']} · {r['amount']:g} TON", callback_data=f"adm:payment:{r['id']}")])
         if not rows: lines.append("Платежей пока нет.")
         nav=[]
@@ -1821,8 +1847,11 @@ async def admin_callback(call: CallbackQuery):
         row = db.get_payment_by_id(offset)
         if not row:
             await call.answer("Платёж не найден", show_alert=True); return
-        created = row['created_at'].strftime('%d.%m.%Y %H:%M') if row.get('created_at') else '—'
-        paid = row['paid_at'].strftime('%d.%m.%Y %H:%M') if row.get('paid_at') else '—'
+        # Конвертируем время в МСК
+        created_msk = to_msk(row.get('created_at'))
+        paid_msk = to_msk(row.get('paid_at'))
+        created = created_msk.strftime('%d.%m.%Y %H:%M МСК') if created_msk else '—'
+        paid = paid_msk.strftime('%d.%m.%Y %H:%M МСК') if paid_msk else '—'
         text=(f"<b>Платёж #{row['id']}</b>\n\nПользователь: <code>{row['user_id']}</code>\n"
               f"Сумма: <b>{row['amount']:g} TON</b>\nСтатус: {row['status']}\nПровайдер: {row.get('provider') or '—'}\n"
               f"Создан: {created}\nОплачен: {paid}\nМетка: <code>{html.escape(row.get('memo') or '—')}</code>\n"
