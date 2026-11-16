@@ -219,6 +219,19 @@ class Database:
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
 
+    def reset_all_links(self, user_id: int) -> int:
+        """Remove all access links (both as owner and as child) for a user."""
+        with self.connect() as con, con.cursor() as cur:
+            # Удаляем где пользователь является твинком
+            cur.execute("DELETE FROM offer_access_links WHERE child_user_id=%s", (user_id,))
+            deleted_as_child = cur.rowcount
+            
+            # Удаляем где пользователь является владельцем (отвязываем всех его твинков)
+            cur.execute("DELETE FROM offer_access_links WHERE owner_user_id=%s", (user_id,))
+            deleted_as_owner = cur.rowcount
+            
+            return deleted_as_child + deleted_as_owner
+
     def claim_one_hour_reminders(self):
         """Atomically claim reminders due within the next hour, once per access period."""
         with self.connect() as con, con.cursor() as cur:

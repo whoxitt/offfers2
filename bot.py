@@ -1485,6 +1485,34 @@ async def handle_text(message: Message, is_business: bool):
         except Exception as e:
             await reply_message(message, f"❌ Не удалось отправить ответ: {e}")
         return
+    if low.startswith("/сброс") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        parts = text.split(maxsplit=1)
+        if len(parts) != 2:
+            await reply_message(message, "Формат: <code>/сброс @username</code> или <code>/сброс USER_ID</code>\n\nСбрасывает все привязки аккаунта (делает его основным).\n\nПримеры:\n• <code>/сброс @username</code>\n• <code>/сброс 123456789</code>")
+            return
+        
+        target = parts[1].strip()
+        
+        # Ищем пользователя
+        if target.lstrip("@").isdigit():
+            uid = int(target.lstrip("@"))
+        else:
+            found = db.find_user_by_username(target)
+            if not found:
+                await reply_message(message, "❌ Пользователь не найден.")
+                return
+            uid = int(found["user_id"])
+        
+        # Сбрасываем все привязки
+        deleted = db.reset_all_links(uid)
+        
+        if deleted > 0:
+            await reply_message(message, f"✅ Сброшено привязок: <b>{deleted}</b>\n\nПользователь <code>{uid}</code> теперь может привязывать твинки.")
+        else:
+            await reply_message(message, f"ℹ️ У пользователя <code>{uid}</code> не было привязок.")
+        
+        db.log_admin_action(cfg.owner_id, "reset_links", uid, f"deleted={deleted}")
+        return
     if low.startswith("/поиск") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         parts = text.split(maxsplit=1)
         if len(parts) != 2:
@@ -1517,7 +1545,8 @@ async def handle_text(message: Message, is_business: bool):
             [InlineKeyboardButton(text="Выдать доступ", callback_data=f"adm:usergrant:{uid}")],
             [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), 
              InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
-            [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")]
+            [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")],
+            [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{uid}")]
         ]
         
         await reply_message(message, text_info, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
@@ -1799,6 +1828,7 @@ async def admin_callback(call: CallbackQuery):
             [InlineKeyboardButton(text="Выдать временный доступ", callback_data=f"adm:usergrant:{uid}")],
             [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
             [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")],
+            [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{uid}")],
             [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]
         await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
 
@@ -1831,6 +1861,22 @@ async def admin_callback(call: CallbackQuery):
         await call.answer("Блокировка снята", show_alert=True)
         row = db.admin_user_detail(offset)
         await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад к пользователям", callback_data="adm:users:0")],[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]])); return
+
+    if action == "resetlinks":
+        deleted = db.reset_all_links(offset)
+        db.log_admin_action(cfg.owner_id, "reset_links", offset, f"deleted={deleted}")
+        if deleted > 0:
+            await call.answer(f"Сброшено привязок: {deleted}", show_alert=True)
+        else:
+            await call.answer("Не было привязок", show_alert=True)
+        row = db.admin_user_detail(offset)
+        await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Выдать временный доступ", callback_data=f"adm:usergrant:{offset}")],
+            [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{offset}"), InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{offset}")],
+            [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{offset}")],
+            [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{offset}")],
+            [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]
+        ])); return
 
     if action == "offers":
         if raw_arg in {"all", "pending", "accepted", "declined", "expired"}:
