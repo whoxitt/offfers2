@@ -294,6 +294,7 @@ class Database:
                 WHERE a.user_id=%s AND (a.expires_at IS NULL OR a.expires_at>NOW())
                   AND (
                       a.source='admin'
+                      OR a.source='admin_paid'
                       OR EXISTS (SELECT 1 FROM payments p WHERE p.user_id=%s AND p.status='paid')
                   )
                   AND NOT EXISTS (SELECT 1 FROM offer_access_links WHERE child_user_id=%s)""",

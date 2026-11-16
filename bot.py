@@ -1657,7 +1657,29 @@ def admin_user_detail_text(row):
     if expiry is None:
         access = "Бессрочно" if db.has_access(int(row['user_id']), cfg.owner_id, cfg.offer_access_mode) else "Нет активного доступа"
     else:
-        access = expiry.strftime('%d.%m.%Y %H:%M UTC') if expiry else "Нет доступа"
+        # Конвертируем в МСК
+        expiry_msk = to_msk(expiry)
+        # Вычисляем оставшееся время
+        now = datetime.now(timezone.utc)
+        remaining_seconds = (expiry - now).total_seconds()
+        
+        if remaining_seconds > 0:
+            days = int(remaining_seconds // 86400)
+            hours = int((remaining_seconds % 86400) // 3600)
+            minutes = int((remaining_seconds % 3600) // 60)
+            
+            # Формируем текст
+            if days > 0:
+                time_left = f"{days}д {hours}ч {minutes}мин"
+            elif hours > 0:
+                time_left = f"{hours}ч {minutes}мин"
+            else:
+                time_left = f"{minutes}мин"
+            
+            access = f"{time_left} (до {expiry_msk.strftime('%d.%m.%Y %H:%M МСК')})"
+        else:
+            access = "Истёк"
+    
     return (f"<b>{name}</b>\nID: <code>{row['user_id']}</code>\nUsername: @{html.escape(row.get('username') or 'не указан')}\n"
             f"Регистрация: {row['created_at'].strftime('%d.%m.%Y') if row.get('created_at') else '—'}\n"
             f"Доступ: <b>{access}</b>\nИсточник доступа: {html.escape(row.get('source') or '—')}\n"
