@@ -1336,18 +1336,24 @@ async def on_message(message: Message):
 def parse_access_duration(raw: str) -> float:
     """Parse duration into hours. Supports 48, 48h, 7d, 30m and Russian units."""
     value = raw.strip().lower().replace(",", ".")
-    match = re.fullmatch(r"(\d+(?:\.\d+)?)(ч|час(?:а|ов)?|h|hr|hrs|д|дн(?:я|ей)?|d|м|мин(?:ут(?:а|ы)?)?|m|min)?", value)
+    # Добавлены варианты: ч/час/часа/часов/h, д/дн/дня/дней/d, м/мин/минут/минуты/минута/m/min
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(ч|час(?:а|ов)?|h|hr|hrs|д|дн(?:я|ей)?|d|day|days|м|мин(?:ут(?:а|ы)?)?|m|min)?", value)
     if not match:
         raise ValueError("invalid duration")
     amount = float(match.group(1))
-    unit = match.group(2) or "h"
+    unit = (match.group(2) or "h").strip()
     if amount <= 0:
         raise ValueError("duration must be positive")
-    if unit in {"д", "дн", "дня", "дней", "d"}:
+    # Дни
+    if unit in {"д", "дн", "дня", "дней", "d", "day", "days"}:
         amount *= 24
+    # Минуты
     elif unit in {"м", "мин", "минута", "минуты", "минут", "m", "min"}:
         amount /= 60
-    if amount > 8760:
+    # Часы - по умолчанию
+    # unit in {"ч", "час", "часа", "часов", "h", "hr", "hrs"}
+    
+    if amount > 8760:  # Максимум 365 дней
         raise ValueError("duration too long")
     return amount
 
@@ -1471,13 +1477,13 @@ async def handle_text(message: Message, is_business: bool):
     if low.startswith("/allow") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         parts = text.split()
         if len(parts) != 3:
-            await reply_message(message, "Формат: <code>/allow @username время</code> или <code>/allow USER_ID время</code>.\\nПримеры: <code>/allow @username 48h</code>, <code>/allow 123456789 7d</code>.")
+            await reply_message(message, "Формат: <code>/allow @username время</code> или <code>/allow USER_ID время</code>.\n\nПримеры:\n• <code>/allow @username 24ч</code>\n• <code>/allow @username 48h</code>\n• <code>/allow 123456789 7д</code>\n• <code>/allow 123456789 30мин</code>")
             return
         target, duration_raw = parts[1], parts[2]
         try:
             hours = parse_access_duration(duration_raw)
         except ValueError:
-            await reply_message(message, "❌ Укажи срок от 1 минуты до 365 дней: например <code>48h</code>, <code>7d</code> или <code>30m</code>.")
+            await reply_message(message, "❌ Неверный формат времени.\n\nПоддерживаемые форматы:\n• <code>24ч</code> или <code>24h</code> — часы\n• <code>7д</code> или <code>7d</code> — дни\n• <code>30м</code> или <code>30min</code> — минуты\n\nМинимум: 1 минута, максимум: 365 дней")
             return
         if target.lstrip("@").isdigit():
             uid = int(target.lstrip("@"))
@@ -1491,7 +1497,21 @@ async def handle_text(message: Message, is_business: bool):
         db.unblock_offer_user(uid)
         db.log_admin_action(cfg.owner_id, "grant_timed_access", uid, f"hours={hours:g}")
         try:
-            await bot.send_message(uid, f"✅ Вам выдан доступ к OfferBot на {duration_raw}.")
+            # Форматируем красивое отображение времени для пользователя
+            if hours >= 24:
+                days = int(hours // 24)
+                remaining_hours = int(hours % 24)
+                if remaining_hours > 0:
+                    time_display = f"{days}д {remaining_hours}ч"
+                else:
+                    time_display = f"{days}д"
+            elif hours >= 1:
+                time_display = f"{int(hours)}ч"
+            else:
+                minutes = int(hours * 60)
+                time_display = f"{minutes}мин"
+            
+            await bot.send_message(uid, f"✅ Вам выдан доступ к OfferBot на {time_display}.")
         except Exception:
             pass
         await reply_message(message, f"✅ Доступ выдан пользователю <code>{uid}</code> на <b>{duration_raw}</b>.")
