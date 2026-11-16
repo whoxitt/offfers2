@@ -1345,68 +1345,49 @@ async def handle_text(message: Message, is_business: bool):
             await reply_message(message, "❌ Эта команда предназначена для Business-чата.")
         return
     
-    # Тестовая команда "Привет"
-    if low == "хупривет":
-        # Создаём inline-кнопку с обходом слова "Привет" (e - английская)
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Привeт", callback_data="test_privet")]
-        ])
-        await test_send_with_keyboard(message, is_business, "Привет", keyboard)
+    # Новые тестовые команды для поиска триггера peer_flood
+    if low == "тест1":
+        await test_send(message, is_business, "Пользователь")
         return
-    
-    # Простые тестовые команды: добавляем по одному слову
-    if low == "ху1":
-        await test_send(message, is_business, "Пoльзoвaтeль")
-        return
-    if low == "ху2":
+    if low == "тест2":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name}")
+        await test_send(message, is_business, f"Пользователь {seller_name}")
         return
-    if low == "ху3":
+    if low == "тест3":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт")
+        await test_send(message, is_business, f"Пользователь {seller_name} предлагает")
         return
-    if low == "ху4":
+    if low == "тест4":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм")
+        await test_send(message, is_business, f"Пользователь {seller_name} предлагает Вам")
         return
-    if low == "ху5":
+    if low == "тест5":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100")
+        await test_send(message, is_business, f"Пользователь {seller_name} предлагает Вам 100₽")
         return
-    if low == "ху6":
+    if low == "тест6":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa")
+        await test_send(message, is_business, f"Пользователь {seller_name} предлагает Вам 100₽ за")
         return
-    if low == "ху7":
+    if low == "тест7":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк")
+        await test_send(message, is_business, f"Пользователь {seller_name} предлагает Вам 100₽ за подарок")
         return
-    if low == "ху8":
+    if low == "тест8":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        # Убираем слово "Пользователь"
-        await test_send(message, is_business, f"{seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк https://t.me/nft/SwagBag-9629")
+        await test_send(message, is_business, f"Пользователь {seller_name} предлагает Вам 100₽ за подарок <a href=\"https://t.me/nft/SwagBag-9629\">SwagBag #9629</a>")
         return
-    if low == "хуу8":
+    if low == "тест9":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        # Убираем слово "Предлагает"
-        await test_send(message, is_business, f"{seller_name} Вaм 100 зa пoдaрoк https://t.me/nft/SwagBag-9629")
+        await test_send(message, is_business, f"Пользователь {seller_name} предлагает Вам 100₽ за подарок <a href=\"https://t.me/nft/SwagBag-9629\">SwagBag #9629</a>.\n\nПредложение")
         return
-    if low == "ху9":
+    if low == "тест10":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe")
+        await test_send(message, is_business, f"Пользователь {seller_name} предлагает Вам 100₽ за подарок <a href=\"https://t.me/nft/SwagBag-9629\">SwagBag #9629</a>.\n\nПредложение активно")
         return
-    if low == "ху10":
+    if low == "тест11":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo")
-        return
-    if low == "ху11":
-        seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк Test.\n\nПрeдлoжeниe aктивнo 24ч")
-        return
-    if low == "ху12":
-        seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"Пoльзoвaтeль {seller_name} прeдлaгaeт Вaм 100 зa пoдaрoк https://t.me/nft/Test.\n\nПрeдлoжeниe aктивнo 24ч.")
+        await test_send(message, is_business, f"Пользователь {seller_name} предлагает Вам 100₽ за подарок <a href=\"https://t.me/nft/SwagBag-9629\">SwagBag #9629</a>.\n\nПредложение активно 23ч 59м.")
         return
     
     # Команда офера настраивается администратором; точка перед ней необязательна.
