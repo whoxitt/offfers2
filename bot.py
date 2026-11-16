@@ -1334,6 +1334,52 @@ async def handle_text(message: Message, is_business: bool):
             await reply_message(message, "❌ Эта команда предназначена для Business-чата.")
         return
     
+    # Безопасные ступенчатые тесты: показывают накопительный текст только владельцу
+    # в личном чате с ботом. Не создают запись офера и не отправляют Business-сообщение
+    # покупателю — поэтому не провоцируют PeerFlood дополнительными тестовыми отправками.
+    test_match = re.fullmatch(r"\\.?тест([1-8])", low)
+    if test_match:
+        if not message.from_user:
+            return
+        stage = int(test_match.group(1))
+        seller_name = display_name(message.from_user)
+        if is_business and message.business_connection_id:
+            try:
+                connection = await get_connection(message.business_connection_id)
+                if connection:
+                    seller_name = " ".join(
+                        x for x in [connection.get("first_name"), connection.get("last_name")] if x
+                    ) or (f"@{connection.get('username')}" if connection.get("username") else seller_name)
+            except Exception:
+                log.exception("Could not load Business profile for staged test")
+        safe_name = html.escape(seller_name)
+        nft_url = "https://t.me/nft/MiniOscar-2719"
+        nft_title = "Mini Oscar #2719"
+        parts = [
+            f"<b>{safe_name}</b>",
+            f"<b>{safe_name}</b> предлагает",
+            f"<b>{safe_name}</b> предлагает вам",
+            f"<b>{safe_name}</b> предлагает вам <b>100 Stars</b>",
+            f"<b>{safe_name}</b> предлагает вам <b>100 Stars</b> за",
+            f"<b>{safe_name}</b> предлагает вам <b>100 Stars</b> за подарок",
+            f'<b>{safe_name}</b> предлагает вам <b>100 Stars</b> за подарок <a href="{nft_url}">{nft_title}</a>',
+            f'<b>{safe_name}</b> предлагает вам <b>100 Stars</b> за подарок <a href="{nft_url}">{nft_title}</a>.\\n\\nПредложение активно в течение <b>23ч 59м</b>.'
+        ]
+        preview = (
+            f"<b>ТЕСТ {stage}/8 — накопительный предпросмотр</b>\\n\\n"
+            + parts[stage - 1]
+            + "\\n\\n<i>Это локальный предпросмотр. Покупателю офер не отправлялся.</i>"
+        )
+        try:
+            await bot.send_message(cfg.owner_id, preview, link_preview_options=LinkPreviewOptions(
+                url=nft_url, show_above_text=True
+            ))
+            await reply_message(message, f"Предпросмотр теста {stage}/8 отправлен владельцу бота в личные сообщения.")
+        except Exception as exc:
+            log.exception("Staged test preview failed")
+            await reply_message(message, f"Не удалось отправить предпросмотр владельцу: {type(exc).__name__}. Убедитесь, что владелец нажал /start у бота.")
+        return
+
     # Тестовая команда "Привет"
     if low == "хупривет":
         # Создаём inline-кнопку с обходом слова "Привет" (e - английская)
