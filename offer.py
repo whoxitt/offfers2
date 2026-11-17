@@ -29,18 +29,9 @@ def parse_offer(text: str, command_prefix: str = "ху"):
     Supported examples:
       <command> https://t.me/nft/PartySparkler-140864 150 грам китай
       .<command> араб https://t.me/nft/PartySparkler-140864 150 stars
-      .<command>1, .<command>2 ... - короткие тестовые команды
     """
     command_prefix = (command_prefix or "ху").strip().lstrip(".")
-    # Дополнительные короткие команды офера с вариантами текста.
-    alias_match = re.match(r'^\.?фу([1-5])?(?=\s|$)', text.strip(), re.I)
-    if alias_match:
-        alias = "фу" + (alias_match.group(1) or "")
-        remainder = text.strip()[alias_match.end():].strip()
-        parsed = parse_offer(command_prefix + (" " + remainder if remainder else ""), command_prefix)
-        if not parsed.get("error"):
-            parsed["text_variant"] = alias
-        return parsed
+    
     escaped_prefix = re.escape(command_prefix)
     test_match = re.match(rf'^\.?{escaped_prefix}(\d+)$', text.strip(), re.I)
     if test_match:
