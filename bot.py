@@ -1486,13 +1486,23 @@ async def handle_text(message: Message, is_business: bool):
         return
     if low == "ам1":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        # Офер БЕЗ второй части (без "Сделка активна в течение...")
+        # Оригинальный офер БЕЗ "Сделка активна в течение 23ч 59м."
         await test_send(message, is_business, f"<b>{seller_name}</b> предлагает Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.")
         return
     if low == "ам2":
         seller_name = message.from_user.first_name if message.from_user else "TestName"
-        # Офер БЕЗ слова "предлагает"
-        await test_send(message, is_business, f"<b>{seller_name}</b> Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.")
+        # Оригинальный офер БЕЗ слова "предлагает" (но с временем)
+        await test_send(message, is_business, f"<b>{seller_name}</b> Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "ам3":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Оригинальный офер БЕЗ слова "Сделка" (но остальное всё есть)
+        await test_send(message, is_business, f"<b>{seller_name}</b> предлагает Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nАктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "ам4":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Оригинальный офер БЕЗ "за подарок" (но остальное всё есть)
+        await test_send(message, is_business, f"<b>{seller_name}</b> предлагает Вам <b>100₽</b> <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
         return
     
     # Команда офера настраивается администратором; точка перед ней необязательна.
