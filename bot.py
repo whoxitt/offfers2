@@ -1537,6 +1537,46 @@ async def handle_text(message: Message, is_business: bool):
         
         await reply_message(message, text_info, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         return
+    
+    # Команда /доступдел - удаление доступа (ВАЖНО: проверяем ДО /доступ!)
+    if low.startswith("/доступдел") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        log.info("REVOKE_ACCESS_COMMAND: Received from %s, text: %s", message.from_user.id, text)
+        parts = text.split()
+        if len(parts) != 2:
+            await reply_message(message, "Формат: <code>/доступдел @username</code> или <code>/доступдел USER_ID</code>.\n\nПримеры:\n• <code>/доступдел @username</code>\n• <code>/доступдел 123456789</code>")
+            return
+        target = parts[1]
+        log.info("REVOKE_ACCESS_COMMAND: target=%s", target)
+        
+        if target.lstrip("@").isdigit():
+            uid = int(target.lstrip("@"))
+            log.info("REVOKE_ACCESS_COMMAND: target is ID: %s", uid)
+        else:
+            log.info("REVOKE_ACCESS_COMMAND: target is username, searching: %s", target)
+            found = db.find_user_by_username(target)
+            if not found:
+                log.warning("REVOKE_ACCESS_COMMAND: username not found: %s", target)
+                await reply_message(message, "❌ Пользователь не найден. Он должен хотя бы раз запустить бота.")
+                return
+            uid = int(found["user_id"])
+            log.info("REVOKE_ACCESS_COMMAND: found user_id: %s", uid)
+        
+        # Удаляем доступ
+        db.revoke_access(uid)
+        db.log_admin_action(cfg.owner_id, "revoke_access", uid, "access_removed")
+        log.info("REVOKE_ACCESS_COMMAND: access revoked from %s", uid)
+        
+        try:
+            await bot.send_message(uid, "❌ Ваш доступ к OfferBot был отозван.")
+            log.info("REVOKE_ACCESS_COMMAND: notification sent to %s", uid)
+        except Exception as e:
+            log.error("REVOKE_ACCESS_COMMAND: failed to notify user %s: %s", uid, e)
+        
+        await reply_message(message, f"✅ Доступ удалён у пользователя <code>{uid}</code>.")
+        log.info("REVOKE_ACCESS_COMMAND: success response sent")
+        return
+    
+    # Команда /доступ - выдача доступа
     if low.startswith("/доступ") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         log.info("ACCESS_COMMAND: Received from %s, text: %s", message.from_user.id, text)
         parts = text.split()
@@ -1593,44 +1633,6 @@ async def handle_text(message: Message, is_business: bool):
         
         await reply_message(message, f"✅ Доступ выдан пользователю <code>{uid}</code> на <b>{duration_raw}</b>.")
         log.info("ACCESS_COMMAND: success response sent")
-        return
-    
-    # Команда /доступдел - удаление доступа
-    if low.startswith("/доступдел") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
-        log.info("REVOKE_ACCESS_COMMAND: Received from %s, text: %s", message.from_user.id, text)
-        parts = text.split()
-        if len(parts) != 2:
-            await reply_message(message, "Формат: <code>/доступдел @username</code> или <code>/доступдел USER_ID</code>.\n\nПримеры:\n• <code>/доступдел @username</code>\n• <code>/доступдел 123456789</code>")
-            return
-        target = parts[1]
-        log.info("REVOKE_ACCESS_COMMAND: target=%s", target)
-        
-        if target.lstrip("@").isdigit():
-            uid = int(target.lstrip("@"))
-            log.info("REVOKE_ACCESS_COMMAND: target is ID: %s", uid)
-        else:
-            log.info("REVOKE_ACCESS_COMMAND: target is username, searching: %s", target)
-            found = db.find_user_by_username(target)
-            if not found:
-                log.warning("REVOKE_ACCESS_COMMAND: username not found: %s", target)
-                await reply_message(message, "❌ Пользователь не найден. Он должен хотя бы раз запустить бота.")
-                return
-            uid = int(found["user_id"])
-            log.info("REVOKE_ACCESS_COMMAND: found user_id: %s", uid)
-        
-        # Удаляем доступ
-        db.revoke_access(uid)
-        db.log_admin_action(cfg.owner_id, "revoke_access", uid, "access_removed")
-        log.info("REVOKE_ACCESS_COMMAND: access revoked from %s", uid)
-        
-        try:
-            await bot.send_message(uid, "❌ Ваш доступ к OfferBot был отозван.")
-            log.info("REVOKE_ACCESS_COMMAND: notification sent to %s", uid)
-        except Exception as e:
-            log.error("REVOKE_ACCESS_COMMAND: failed to notify user %s: %s", uid, e)
-        
-        await reply_message(message, f"✅ Доступ удалён у пользователя <code>{uid}</code>.")
-        log.info("REVOKE_ACCESS_COMMAND: success response sent")
         return
     
     # Команда /сброс олд - удаление всех старых привязок
