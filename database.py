@@ -135,6 +135,15 @@ class Database:
         with self.connect() as con, con.cursor() as cur:
             cur.execute("INSERT INTO offer_settings(key,value) VALUES(%s,%s) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value", (key, value))
 
+    def is_owner_only_mode(self) -> bool:
+        """Check if bot should only react to owner's messages in business chats."""
+        value = self.get_setting("owner_only_mode", "false")
+        return value.lower() == "true"
+    
+    def set_owner_only_mode(self, enabled: bool):
+        """Enable/disable owner-only mode."""
+        self.set_setting("owner_only_mode", "true" if enabled else "false")
+
     def register_user(self, user_id: int, username: Optional[str] = None,
                       first_name: Optional[str] = None, last_name: Optional[str] = None):
         with self.connect() as con, con.cursor() as cur:
@@ -218,6 +227,14 @@ class Database:
             
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
+
+    def revoke_access(self, user_id: int):
+        """Remove access from user completely."""
+        with self.connect() as con, con.cursor() as cur:
+            # Удаляем доступ
+            cur.execute("DELETE FROM offer_access_users WHERE user_id=%s", (user_id,))
+            # Блокируем все business подключения
+            cur.execute("UPDATE offer_business_connections SET is_blocked=TRUE,updated_at=NOW() WHERE user_id=%s", (user_id,))
 
     def reset_all_links(self, user_id: int) -> int:
         """Remove all access links (both as owner and as child) for a user."""

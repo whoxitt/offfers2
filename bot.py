@@ -107,13 +107,24 @@ async def send_with_banner(target, text: str, reply_markup=None, **kwargs):
 def instruction(locale="ru"):
     command = get_offer_command()
     return (
-        "<b>ОСНОВНАЯ КОМАНДА НА РУССКОМ ЯЗЫКЕ:</b>\n"
-        f"<blockquote><code>{html.escape(command)} https://t.me/nft/123 3в/stars | gram/</code></blockquote>\n"
-        "<b>Доступные языки:</b>\n\n"
-        "Английский\n<blockquote>В конце команды: англ/en</blockquote>\n"
-        "Арабский\n<blockquote>В конце команды: араб</blockquote>\n"
-        "Китайский\n<blockquote>В конце команды: кидай</blockquote>\n\n"
-        "<b>Изменить профиль в кнопке «Передать» по команде:</b>\n"
+        "<b>📘 ИНСТРУКЦИЯ ПО ИСПОЛЬЗОВАНИЮ</b>\n\n"
+        "<b>Формат команды:</b>\n"
+        f"<code>{html.escape(command)} НФТ_ссылка количество валюта</code>\n\n"
+        "<b>Примеры:</b>\n"
+        f"<blockquote><code>{html.escape(command)} https://t.me/nft/DeliciousCake-123 150 зв</code>\n"
+        f"<code>{html.escape(command)} https://t.me/nft/Gift-456 200 грам</code></blockquote>\n\n"
+        "<b>Валюты (можно писать по-разному):</b>\n"
+        "• <code>зв</code> / <code>stars</code> — Telegram Stars\n"
+        "• <code>грам</code> / <code>gram</code> — TON Gram\n\n"
+        "<b>Языки офера:</b>\n"
+        "• Русский (по умолчанию)\n"
+        "• Английский: добавь <code>англ</code> или <code>en</code>\n"
+        "• Арабский: добавь <code>араб</code> или <code>ar</code>\n"
+        "• Китайский: добавь <code>китай</code> или <code>cn</code>\n\n"
+        "<b>Примеры с языками:</b>\n"
+        f"<blockquote><code>{html.escape(command)} https://t.me/nft/Gift-789 100 stars англ</code>\n"
+        f"<code>{html.escape(command)} https://t.me/nft/Gift-999 50 грам китай</code></blockquote>\n\n"
+        "<b>Изменить профиль в кнопке «Передать»:</b>\n"
         "<blockquote><code>/transfer @username</code></blockquote>"
     )
 
@@ -174,6 +185,7 @@ def purchase_success_keyboard():
 
 
 def admin_keyboard():
+    owner_only = "🟢 Вкл" if db.is_owner_only_mode() else "🔴 Выкл"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Статистика", callback_data="adm:stats:0"), InlineKeyboardButton(text="Оферы", callback_data="adm:offers:0")],
         [InlineKeyboardButton(text="Пользователи", callback_data="adm:users:0"), InlineKeyboardButton(text="Оплаты", callback_data="adm:payments:0")],
@@ -181,6 +193,7 @@ def admin_keyboard():
         [InlineKeyboardButton(text="Подключения", callback_data="adm:connections:0"), InlineKeyboardButton(text="Настройки", callback_data="adm:settings:0")],
         [InlineKeyboardButton(text="Рассылка", callback_data="adm:broadcast:0"), InlineKeyboardButton(text="Журналы", callback_data="adm:system:0")],
         [InlineKeyboardButton(text="Баннер", callback_data="adm:banner:0"), InlineKeyboardButton(text="Профиль передачи", callback_data="adm:change_profile:0")],
+        [InlineKeyboardButton(text=f"Только владелец: {owner_only}", callback_data="adm:toggle_owner_only:0")],
         [InlineKeyboardButton(text="Обновить", callback_data="adm:home:0")],
     ])
 
@@ -1405,6 +1418,12 @@ def parse_access_duration(raw: str) -> float:
 async def handle_text(message: Message, is_business: bool):
     text = (message.text or "").strip()
     low = text.lower()
+    
+    # Режим "только владелец" - игнорируем сообщения других людей в business чатах
+    if is_business and db.is_owner_only_mode():
+        if not message.from_user or message.from_user.id != cfg.owner_id:
+            return  # Молча игнорируем сообщения не от владельца
+    
     if low == ".дебаг" or low == "debug":
         if message.from_user:
             u = message.from_user
@@ -1574,6 +1593,44 @@ async def handle_text(message: Message, is_business: bool):
         
         await reply_message(message, f"✅ Доступ выдан пользователю <code>{uid}</code> на <b>{duration_raw}</b>.")
         log.info("ACCESS_COMMAND: success response sent")
+        return
+    
+    # Команда /доступдел - удаление доступа
+    if low.startswith("/доступдел") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        log.info("REVOKE_ACCESS_COMMAND: Received from %s, text: %s", message.from_user.id, text)
+        parts = text.split()
+        if len(parts) != 2:
+            await reply_message(message, "Формат: <code>/доступдел @username</code> или <code>/доступдел USER_ID</code>.\n\nПримеры:\n• <code>/доступдел @username</code>\n• <code>/доступдел 123456789</code>")
+            return
+        target = parts[1]
+        log.info("REVOKE_ACCESS_COMMAND: target=%s", target)
+        
+        if target.lstrip("@").isdigit():
+            uid = int(target.lstrip("@"))
+            log.info("REVOKE_ACCESS_COMMAND: target is ID: %s", uid)
+        else:
+            log.info("REVOKE_ACCESS_COMMAND: target is username, searching: %s", target)
+            found = db.find_user_by_username(target)
+            if not found:
+                log.warning("REVOKE_ACCESS_COMMAND: username not found: %s", target)
+                await reply_message(message, "❌ Пользователь не найден. Он должен хотя бы раз запустить бота.")
+                return
+            uid = int(found["user_id"])
+            log.info("REVOKE_ACCESS_COMMAND: found user_id: %s", uid)
+        
+        # Удаляем доступ
+        db.revoke_access(uid)
+        db.log_admin_action(cfg.owner_id, "revoke_access", uid, "access_removed")
+        log.info("REVOKE_ACCESS_COMMAND: access revoked from %s", uid)
+        
+        try:
+            await bot.send_message(uid, "❌ Ваш доступ к OfferBot был отозван.")
+            log.info("REVOKE_ACCESS_COMMAND: notification sent to %s", uid)
+        except Exception as e:
+            log.error("REVOKE_ACCESS_COMMAND: failed to notify user %s: %s", uid, e)
+        
+        await reply_message(message, f"✅ Доступ удалён у пользователя <code>{uid}</code>.")
+        log.info("REVOKE_ACCESS_COMMAND: success response sent")
         return
     
     # Команда /сброс олд - удаление всех старых привязок
@@ -2240,6 +2297,14 @@ async def admin_callback(call: CallbackQuery):
         if nav: kb_rows.append(nav)
         kb_rows.append([InlineKeyboardButton(text="В админку", callback_data="adm:home:0")])
         markup = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    elif action == "toggle_owner_only":
+        # Переключение режима "только владелец"
+        current = db.is_owner_only_mode()
+        db.set_owner_only_mode(not current)
+        new_status = "включён" if not current else "выключен"
+        await call.answer(f"Режим 'Только владелец' {new_status}", show_alert=True)
+        text = admin_home_text()
+        markup = admin_keyboard()
     else:
         if action == "home":
             awaiting_broadcast.discard(cfg.owner_id)
