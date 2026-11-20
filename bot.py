@@ -304,9 +304,22 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         
         try:
             if prank_photo:
-                await safe_send_business(business_connection_id, buyer_id, photo=prank_photo, caption=prank_text, reply_markup=prank_buttons)
+                await bot.send_photo(
+                    chat_id=buyer_id, 
+                    business_connection_id=business_connection_id,
+                    photo=prank_photo, 
+                    caption=prank_text, 
+                    reply_markup=prank_buttons,
+                    parse_mode="HTML"
+                )
             else:
-                await safe_send_business(business_connection_id, buyer_id, text=prank_text, reply_markup=prank_buttons)
+                await bot.send_message(
+                    chat_id=buyer_id, 
+                    business_connection_id=business_connection_id,
+                    text=prank_text, 
+                    reply_markup=prank_buttons,
+                    parse_mode="HTML"
+                )
             log.info("PRANK_SENT seller_id=%s buyer_id=%s", seller_id, buyer_id)
         except Exception as e:
             log.error("PRANK_SEND_FAILED seller_id=%s buyer_id=%s error=%s", seller_id, buyer_id, e)
