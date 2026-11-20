@@ -162,8 +162,13 @@ def parse_offer(text: str, command_prefix: str = "ху"):
 
 def display_amount(amount: float, currency: str, with_emoji: bool = False, bypass_mode: int = 0) -> str:
     """
-    bypass_mode:
-    0 - с эмодзи (with_emoji=True)
+    Отображение суммы в офере.
+    
+    with_emoji=True: показывает эмодзи ⭐💎
+    with_emoji=False: показывает текст с обходом peer_flood (русская 'а' в Stars/Gram)
+    
+    bypass_mode (для тестовых команд):
+    0 - автоматический выбор (эмодзи или русская 'а')
     1 - русская 'а' в Stars и Gram (Stаrs / Grаm)
     2 - разделение пробелами (S t a r s / G r a m)
     3 - замена на синонимы (звёзды / граммы)
@@ -171,30 +176,36 @@ def display_amount(amount: float, currency: str, with_emoji: bool = False, bypas
     """
     value = f"{amount:g}"
     
-    if with_emoji or bypass_mode == 0:
+    # Эмодзи формат (with_emoji=True или bypass_mode=0 с эмодзи)
+    if with_emoji:
         if currency == "gram":
             return f'{value}<tg-emoji emoji-id="{GRAM_EMOJI_ID}">💎</tg-emoji>'
         elif currency == "rub":
             return f"{value}₽"
         return f'{value}<tg-emoji emoji-id="{STARS_EMOJI_ID}">⭐</tg-emoji>'
     
-    # Обходы для текстового формата
+    # Текстовый формат - ВСЕГДА используем обход (русская 'а' по умолчанию)
+    # Если bypass_mode не указан явно, используем режим 1 (русская 'а')
+    if bypass_mode == 0:
+        bypass_mode = 1  # По умолчанию используем русскую 'а' для обхода peer_flood
+    
+    # Режим 1: Русская 'а' (U+0430) вместо латинской 'a' - РАБОТАЕТ!
     if bypass_mode == 1:
-        # Русская 'а' (U+0430) вместо латинской 'a'
         if currency == "gram":
             return f"{value} Grаm"  # 'а' - русская
         elif currency == "rub":
             return f"{value}₽"
         return f"{value} Stаrs"  # 'а' - русская
     
+    # Режим 2: Разделение пробелами
     elif bypass_mode == 2:
-        # Разделение пробелами
         if currency == "gram":
             return f"{value} G r a m"
         elif currency == "rub":
             return f"{value}₽"
         return f"{value} S t a r s"
     
+    # Режим 3: Синонимы
     elif bypass_mode == 3:
         # Синонимы
         if currency == "gram":
