@@ -46,6 +46,41 @@ def parse_offer(text: str, command_prefix: str = "ху"):
             "test_level": level
         }
     
+    # Проверка команд оф1-оф4 (тесты обхода Stars/Gram)
+    of_match = re.match(r'^\.?оф(\d+)(?:\s|$)', text.strip(), re.I)
+    if of_match:
+        variant = int(of_match.group(1))
+        # Парсим остальную часть команды как обычный офер
+        # Формат: оф1 нфт-ссылка кол-во зв/грам
+        tokens = text.strip().split()
+        locale = "ru"
+        
+        # Ищем NFT
+        nft = None
+        for token in tokens[1:]:
+            candidate = normalize_nft(token)
+            if candidate:
+                nft = candidate
+                break
+        if not nft:
+            return {"error": "nft", "locale": locale}
+        
+        # Ищем цену
+        price = PRICE_RE.search(text)
+        if not price:
+            return {"error": "price", "locale": locale, **nft}
+        
+        amount = float(price.group("amount").replace(",", "."))
+        currency_raw = price.group("currency").lower()
+        if currency_raw.startswith(("грам", "gram")):
+            currency = "gram"
+        elif currency_raw.startswith(("р", "руб")):
+            currency = "rub"
+        else:
+            currency = "stars"
+        
+        return {**nft, "amount": amount, "currency": currency, "locale": locale, "of_variant": variant}
+    
     tokens = text.strip().split()
     if not tokens or tokens[0].strip().lower().lstrip(".") != command_prefix.lower():
         return {"error": "command", "locale": "ru"}
@@ -87,7 +122,7 @@ def parse_offer(text: str, command_prefix: str = "ху"):
     return {**nft, "amount": amount, "currency": currency, "locale": locale}
 
 
-def display_amount(amount: float, currency: str, with_emoji: bool = False) -> str:
+def display_amount(amount: float, currency: str, with_emoji: bool = False, of_variant: int = 0) -> str:
     # В премиум-формате число должно непосредственно примыкать к эмодзи:
     # например, 150<tg-emoji ...>⭐</tg-emoji>, без пробела.
     value = f"{amount:g}"
@@ -97,6 +132,41 @@ def display_amount(amount: float, currency: str, with_emoji: bool = False) -> st
         elif currency == "rub":
             return f"{value}₽"
         return f'{value}<tg-emoji emoji-id="{STARS_EMOJI_ID}">⭐</tg-emoji>'
+
+    # Тестовые варианты обхода для команд оф1-оф4
+    if of_variant > 0:
+        if currency == "gram":
+            if of_variant == 1:
+                # оф1: замена a на русскую а в Gram
+                return f"{value} Grаm"  # а - русская
+            elif of_variant == 2:
+                # оф2: замена обеих букв a на русские
+                return f"{value} Grаm"  # обе а - русские (но в Gram только одна а)
+            elif of_variant == 3:
+                # оф3: добавление invisible символа
+                return f"{value} G\u200cram"
+            elif of_variant == 4:
+                # оф4: замена r на похожую букву
+                return f"{value} Gгam"  # г - русская
+            else:
+                return f"{value} Gram"
+        elif currency == "rub":
+            return f"{value}₽"
+        else:  # stars
+            if of_variant == 1:
+                # оф1: замена a на русскую а в Stars
+                return f"{value} Stаrs"  # а - русская
+            elif of_variant == 2:
+                # оф2: замена s на русскую с
+                return f"{value} Staгs"  # г - русская вместо r
+            elif of_variant == 3:
+                # оф3: invisible символ
+                return f"{value} St\u200cars"
+            elif of_variant == 4:
+                # оф4: комбинация замен
+                return f"{value} Stагs"  # а и г - русские
+            else:
+                return f"{value} Stars"
 
     # Формат суммы: обычные слова Stars / Gram.
     if currency == "gram":

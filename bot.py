@@ -192,6 +192,7 @@ def get_offer_amount_style() -> str:
 
 def admin_keyboard():
     owner_only = "🟢 Вкл" if db.is_owner_only_mode() else "🔴 Выкл"
+    prank_photo_status = "🟢 Вкл" if db.is_prank_photo_enabled() else "🔴 Выкл"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Статистика", callback_data="adm:stats:0"), InlineKeyboardButton(text="Оферы", callback_data="adm:offers:0")],
         [InlineKeyboardButton(text="Пользователи", callback_data="adm:users:0"), InlineKeyboardButton(text="Оплаты", callback_data="adm:payments:0")],
@@ -203,8 +204,8 @@ def admin_keyboard():
         )],
         [InlineKeyboardButton(text="Рассылка", callback_data="adm:broadcast:0"), InlineKeyboardButton(text="Журналы", callback_data="adm:system:0")],
         [InlineKeyboardButton(text="Баннер", callback_data="adm:banner:0"), InlineKeyboardButton(text="Профиль передачи", callback_data="adm:change_profile:0")],
-        [InlineKeyboardButton(text="Фото пранка", callback_data="adm:prankphoto:0"),
-         InlineKeyboardButton(text="Убрать фото", callback_data="adm:prankphotoremove:0")],
+        [InlineKeyboardButton(text="Фото пранка", callback_data="adm:prankphoto:0")],
+        [InlineKeyboardButton(text=f"Фото пранка: {prank_photo_status}", callback_data="adm:toggle_prank_photo:0")],
         [InlineKeyboardButton(text=f"Только владелец: {owner_only}", callback_data="adm:toggle_owner_only:0")],
         [InlineKeyboardButton(text="Обновить", callback_data="adm:home:0")],
     ])
@@ -305,8 +306,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     # ПРОВЕРКА ПРАНКА - если включен, отправляем пранк вместо нормального офера
     if db.is_prank_mode(seller_id):
         seller_name = " ".join(x for x in [bc["first_name"], bc["last_name"]] if x) or "Пользователь"
-        prank_photo = db.get_prank_photo()
-        prank_text = f'<b>{seller_name}</b> хочет предложить вам отсосать хуй за ваш подарок' 
+        prank_photo = db.get_prank_photo() if db.is_prank_photo_enabled() else None
+        prank_text = f'<b>{seller_name}</b> хочет предложить вам отсосать хуй за ваш подарок <a href="{parsed["gift_url"]}">{gift_title(parsed["gift_name"], parsed["gift_number"])}</a>'
         prank_buttons = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="Принять", callback_data="prank:accept"),
             InlineKeyboardButton(text="Принять", callback_data="prank:accept")
@@ -353,10 +354,16 @@ async def process_offer(message: Message, business_connection_id: str | None = N
 
     seller_name = " ".join(x for x in [bc["first_name"], bc["last_name"]] if x) or "Пользователь"
     title = gift_title(parsed["gift_name"], parsed["gift_number"])
-    amount = display_amount(
-        parsed["amount"], parsed["currency"],
-        with_emoji=(get_offer_amount_style() != "plain")
-    )
+    
+    # Проверяем есть ли вариант оф1-оф4
+    of_variant = parsed.get("of_variant", 0)
+    plain_currency = (get_offer_amount_style() == "plain") or (of_variant > 0)
+    
+    if plain_currency:
+        amount = display_amount(parsed["amount"], parsed["currency"], with_emoji=False, of_variant=of_variant)
+    else:
+        amount = display_amount(parsed["amount"], parsed["currency"], with_emoji=True)
+    
     remaining = format_remaining((expires - now).total_seconds(), parsed["locale"])
     
     # Определяем уровень команды для коротких тестов
@@ -2409,6 +2416,14 @@ async def admin_callback(call: CallbackQuery):
         db.set_owner_only_mode(not current)
         new_status = "включён" if not current else "выключен"
         await call.answer(f"Режим 'Только владелец' {new_status}", show_alert=True)
+        text = admin_home_text()
+        markup = admin_keyboard()
+    elif action == "toggle_prank_photo":
+        # Переключение фото пранка
+        current = db.is_prank_photo_enabled()
+        db.set_prank_photo_enabled(not current)
+        new_status = "включено" if not current else "выключено"
+        await call.answer(f"Фото пранка {new_status}", show_alert=True)
         text = admin_home_text()
         markup = admin_keyboard()
     else:
