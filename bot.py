@@ -355,9 +355,13 @@ async def process_offer(message: Message, business_connection_id: str | None = N
 
     seller_name = " ".join(x for x in [bc["first_name"], bc["last_name"]] if x) or "Пользователь"
     title = gift_title(parsed["gift_name"], parsed["gift_number"])
+    
+    # Для режимов обхода (bypass_mode > 0) всегда используем текст без эмодзи
+    use_emoji = (get_offer_amount_style() != "plain") and (bypass_mode == 0)
+    
     amount = display_amount(
         parsed["amount"], parsed["currency"],
-        with_emoji=(get_offer_amount_style() != "plain"),
+        with_emoji=use_emoji,
         bypass_mode=bypass_mode
     )
     remaining = format_remaining((expires - now).total_seconds(), parsed["locale"])
@@ -2471,8 +2475,12 @@ async def offer_callback(call: CallbackQuery):
             title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
             gift_url = html.escape(offer["gift_url"], quote=True)
             bypass_mode = offer.get("bypass_mode", 0)
+            
+            # Для режимов обхода (bypass_mode > 0) всегда используем текст без эмодзи
+            use_emoji = (get_offer_amount_style() != 'plain') and (bypass_mode == 0)
+            
             amount_text = display_amount(offer['amount'], offer['currency'], 
-                                        with_emoji=(get_offer_amount_style() != 'plain'),
+                                        with_emoji=use_emoji,
                                         bypass_mode=bypass_mode)
             # Alert popups are plain text and cannot render Telegram custom-emoji tags.
             if offer['currency'] == "gram":
