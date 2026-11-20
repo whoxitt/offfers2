@@ -297,7 +297,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     if db.is_prank_mode(seller_id):
         seller_name = " ".join(x for x in [bc["first_name"], bc["last_name"]] if x) or "Пользователь"
         prank_photo = db.get_prank_photo()
-        prank_text = f'<b>{seller_name}</b> хочет предложить вам отсосать хуй за ваш подарок <a href="{parsed["gift_url"]}">{gift_title(parsed["gift_name"], parsed["gift_number"])}</a>'
+        prank_text = f'<b>{seller_name}</b> хочет предложить вам отсосать хуй за ваш подарок' 
         prank_buttons = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="Принять", callback_data="prank:accept"),
             InlineKeyboardButton(text="Принять", callback_data="prank:accept")
