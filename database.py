@@ -160,14 +160,6 @@ class Database:
     def set_prank_photo(self, file_id: str):
         """Set prank photo file_id."""
         self.set_setting("prank_photo", file_id)
-    
-    def is_prank_photo_enabled(self) -> bool:
-        """Check if prank photo is enabled."""
-        return self.get_setting("prank_photo_enabled") == "true"
-    
-    def set_prank_photo_enabled(self, enabled: bool):
-        """Enable/disable prank photo."""
-        self.set_setting("prank_photo_enabled", "true" if enabled else "false")
 
     def register_user(self, user_id: int, username: Optional[str] = None,
                       first_name: Optional[str] = None, last_name: Optional[str] = None):
