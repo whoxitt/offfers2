@@ -5,12 +5,14 @@ from offer import parse_offer, display_amount
 
 # Тестовые команды
 test_commands = [
-    ".оф1 https://t.me/nft/DeliciousCake-1 150 stars",
-    ".оф2 https://t.me/nft/DeliciousCake-1 100 gram",
-    ".оф3 https://t.me/nft/DeliciousCake-1 200 stars",
-    ".оф4 https://t.me/nft/DeliciousCake-1 150 gram",
-    "оф1 https://t.me/nft/PartySparkler-140864 500 stars",
-    "оф2 https://t.me/nft/PartySparkler-140864 300 gram",
+    "гой https://t.me/nft/XmasStocking-215433 150 stars",
+    "гой1 https://t.me/nft/XmasStocking-215433 150 stars",
+    "гой2 https://t.me/nft/XmasStocking-215433 100 gram",
+    "гой3 https://t.me/nft/XmasStocking-215433 200 stars",
+    "гой4 https://t.me/nft/XmasStocking-215433 150 gram",
+    ".гой https://t.me/nft/DeliciousCake-1 150 stars",
+    ".гой1 https://t.me/nft/DeliciousCake-1 500 stars",
+    ".гой2 https://t.me/nft/PartySparkler-140864 300 gram",
 ]
 
 print("=" * 60)
@@ -46,9 +48,9 @@ for cmd in test_commands:
 print("\n" + "=" * 60)
 print("РЕЖИМЫ ОБХОДА:")
 print("=" * 60)
-print("0 - Эмодзи (по умолчанию)")
-print("1 - Русская 'а' (Stаrs / Grаm)")
-print("2 - Пробелы (S t a r s / G r a m)")
-print("3 - Синонимы (звёзды / граммы)")
-print("4 - Zero-width space (S​tars / G​ram)")
+print("гой   - Эмодзи (по умолчанию)")
+print("гой1  - Русская 'а' (Stаrs / Grаm)")
+print("гой2  - Пробелы (S t a r s / G r a m)")
+print("гой3  - Синонимы (звёзды / граммы)")
+print("гой4  - Zero-width space (S​tars / G​ram)")
 print("=" * 60)

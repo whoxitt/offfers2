@@ -46,7 +46,44 @@ def parse_offer(text: str, command_prefix: str = "ху"):
             "test_level": level
         }
     
-    # Тестовые команды для проверки обходов: оф1, оф2, оф3, оф4
+    # Тестовые команды для проверки обходов: оф1-4, гой, гой1-4
+    # Проверяем сначала "гой" с цифрой или без
+    goy_match = re.match(r'^\.?гой([1-4])?\s+(.+)', text.strip(), re.I)
+    if goy_match:
+        bypass_mode = int(goy_match.group(1)) if goy_match.group(1) else 0
+        rest_of_command = goy_match.group(2)
+        
+        # Парсим остальную часть команды (NFT ссылка + цена)
+        tokens = rest_of_command.split()
+        nft = None
+        for token in tokens:
+            candidate = normalize_nft(token)
+            if candidate:
+                nft = candidate
+                break
+        
+        price = PRICE_RE.search(rest_of_command)
+        if not nft or not price:
+            return {"error": "test_format", "locale": "ru"}
+        
+        amount = float(price.group("amount").replace(",", "."))
+        currency_raw = price.group("currency").lower()
+        if currency_raw.startswith(("грам", "gram")):
+            currency = "gram"
+        elif currency_raw.startswith(("р", "руб")):
+            currency = "rub"
+        else:
+            currency = "stars"
+        
+        return {
+            **nft,
+            "amount": amount,
+            "currency": currency,
+            "locale": "ru",
+            "bypass_mode": bypass_mode
+        }
+    
+    # Старые команды оф1-4 (для обратной совместимости)
     bypass_test_match = re.match(r'^\.?оф([1-4])\s+(.+)', text.strip(), re.I)
     if bypass_test_match:
         bypass_mode = int(bypass_test_match.group(1))
