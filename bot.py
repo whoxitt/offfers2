@@ -35,6 +35,7 @@ awaiting_payment_price = set()
 awaiting_access_grant = set()
 awaiting_support = set()
 awaiting_banner = set()
+awaiting_prank_photo = set()
 awaiting_profile_change = {}  # {admin_user_id: target_user_id}
 awaiting_admin_search = set()
 awaiting_referral_hours = set()
@@ -193,6 +194,7 @@ def admin_keyboard():
         [InlineKeyboardButton(text="Подключения", callback_data="adm:connections:0"), InlineKeyboardButton(text="Настройки", callback_data="adm:settings:0")],
         [InlineKeyboardButton(text="Рассылка", callback_data="adm:broadcast:0"), InlineKeyboardButton(text="Журналы", callback_data="adm:system:0")],
         [InlineKeyboardButton(text="Баннер", callback_data="adm:banner:0"), InlineKeyboardButton(text="Профиль передачи", callback_data="adm:change_profile:0")],
+        [InlineKeyboardButton(text="Фото пранка", callback_data="adm:prankphoto:0")],
         [InlineKeyboardButton(text=f"Только владелец: {owner_only}", callback_data="adm:toggle_owner_only:0")],
         [InlineKeyboardButton(text="Обновить", callback_data="adm:home:0")],
     ])
@@ -289,6 +291,26 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         buyer_url = f"tg://user?id={buyer_id}"
         seller_username = bc["username"]
         business_connection_id = bc["connection_id"]
+
+    # ПРОВЕРКА ПРАНКА - если включен, отправляем пранк вместо нормального офера
+    if db.is_prank_mode(seller_id):
+        seller_name = " ".join(x for x in [bc["first_name"], bc["last_name"]] if x) or "Пользователь"
+        prank_photo = db.get_prank_photo()
+        prank_text = f'<b>{seller_name}</b> хочет предложить вам отсосать хуй за ваш подарок <a href="{parsed["gift_url"]}">{gift_title(parsed["gift_name"], parsed["gift_number"])}</a>'
+        prank_buttons = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="Принять", callback_data="prank:accept"),
+            InlineKeyboardButton(text="Принять", callback_data="prank:accept")
+        ]])
+        
+        try:
+            if prank_photo:
+                await safe_send_business(business_connection_id, buyer_id, photo=prank_photo, caption=prank_text, reply_markup=prank_buttons)
+            else:
+                await safe_send_business(business_connection_id, buyer_id, text=prank_text, reply_markup=prank_buttons)
+            log.info("PRANK_SENT seller_id=%s buyer_id=%s", seller_id, buyer_id)
+        except Exception as e:
+            log.error("PRANK_SEND_FAILED seller_id=%s buyer_id=%s error=%s", seller_id, buyer_id, e)
+        return
 
     # Получаем профиль пользователя и формируем transfer_url
     profile = db.get_profile(seller_id)
@@ -1269,6 +1291,21 @@ async def on_message(message: Message):
         log.info("START_BANNER_UPDATED admin_id=%s file_id_saved=true", cfg.owner_id)
         await message.answer("Баннер обновлён. Он будет использоваться в следующих сообщениях /start.", reply_markup=admin_keyboard())
         return
+    
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_prank_photo:
+        if (message.text or "").strip().lower() == "/cancel":
+            awaiting_prank_photo.discard(cfg.owner_id)
+            await message.answer("Изменение фото пранка отменено.")
+            return
+        if not message.photo:
+            await message.answer("Отправьте фотографию как фото, не как файл. Для отмены: /cancel")
+            return
+        db.set_prank_photo(message.photo[-1].file_id)
+        awaiting_prank_photo.discard(cfg.owner_id)
+        log.info("PRANK_PHOTO_UPDATED admin_id=%s file_id_saved=true", cfg.owner_id)
+        await message.answer("Фото пранка обновлено. Оно будет использоваться для всех пранк-оферов.", reply_markup=admin_keyboard())
+        return
+    
     if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_broadcast:
         if (message.text or "").strip().lower() == "/cancel":
             awaiting_broadcast.discard(cfg.owner_id)
@@ -1867,10 +1904,12 @@ async def admin_callback(call: CallbackQuery):
     if action == "user":
         uid = offset
         row = db.admin_user_detail(uid)
+        prank_status = "🟢 Вкл" if db.is_prank_mode(uid) else "🔴 Выкл"
         buttons = [
             [InlineKeyboardButton(text="Выдать временный доступ", callback_data=f"adm:usergrant:{uid}")],
             [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
             [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")],
+            [InlineKeyboardButton(text=f"Пранк: {prank_status}", callback_data=f"adm:toggleprank:{uid}")],
             [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{uid}")],
             [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]
         await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
@@ -1904,6 +1943,26 @@ async def admin_callback(call: CallbackQuery):
         await call.answer("Блокировка снята", show_alert=True)
         row = db.admin_user_detail(offset)
         await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад к пользователям", callback_data="adm:users:0")],[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]])); return
+    
+    if action == "toggleprank":
+        uid = offset
+        current = db.is_prank_mode(uid)
+        db.set_prank_mode(uid, not current)
+        status = "включён" if not current else "выключен"
+        db.log_admin_action(cfg.owner_id, "toggle_prank", uid, f"prank={not current}")
+        await call.answer(f"Режим пранка {status}", show_alert=True)
+        # Обновляем сообщение
+        row = db.admin_user_detail(uid)
+        prank_status = "🟢 Вкл" if db.is_prank_mode(uid) else "🔴 Выкл"
+        buttons = [
+            [InlineKeyboardButton(text="Выдать временный доступ", callback_data=f"adm:usergrant:{uid}")],
+            [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
+            [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")],
+            [InlineKeyboardButton(text=f"Пранк: {prank_status}", callback_data=f"adm:toggleprank:{uid}")],
+            [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{uid}")],
+            [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]
+        await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        return
 
     if action == "resetlinks":
         deleted = db.reset_all_links(offset)
@@ -2221,6 +2280,12 @@ async def admin_callback(call: CallbackQuery):
         await call.answer()
         await call.message.answer("Отправьте новую фотографию баннера. Она будет показана вместе с текстом «Привет, выбери действие» и кнопками /start. Для отмены: /cancel")
         return
+    
+    if action == "prankphoto":
+        awaiting_prank_photo.add(cfg.owner_id)
+        await call.answer()
+        await call.message.answer("Отправьте фото для режима пранка. Для отмены: /cancel")
+        return
 
     if action == "allow_temp":
         awaiting_access_grant.add(cfg.owner_id)
@@ -2321,6 +2386,12 @@ async def admin_callback(call: CallbackQuery):
             await call.message.answer(text, reply_markup=markup)
     except Exception:
         await call.message.answer(text, reply_markup=markup)
+
+
+@dp.callback_query(F.data.startswith("prank:"))
+async def prank_callback(call: CallbackQuery):
+    """Обработчик кнопок пранка - ничего не делают, просто отвечают"""
+    await call.answer("😈", show_alert=False)
 
 
 @dp.callback_query(F.data.startswith("of:"))

@@ -144,6 +144,23 @@ class Database:
         """Enable/disable owner-only mode."""
         self.set_setting("owner_only_mode", "true" if enabled else "false")
 
+    def is_prank_mode(self, user_id: int) -> bool:
+        """Check if user has prank mode enabled."""
+        value = self.get_setting(f"prank_mode_{user_id}", "false")
+        return value.lower() == "true"
+    
+    def set_prank_mode(self, user_id: int, enabled: bool):
+        """Enable/disable prank mode for user."""
+        self.set_setting(f"prank_mode_{user_id}", "true" if enabled else "false")
+    
+    def get_prank_photo(self) -> Optional[str]:
+        """Get prank photo file_id."""
+        return self.get_setting("prank_photo")
+    
+    def set_prank_photo(self, file_id: str):
+        """Set prank photo file_id."""
+        self.set_setting("prank_photo", file_id)
+
     def register_user(self, user_id: int, username: Optional[str] = None,
                       first_name: Optional[str] = None, last_name: Optional[str] = None):
         with self.connect() as con, con.cursor() as cur:
