@@ -197,6 +197,10 @@ def admin_keyboard():
         [InlineKeyboardButton(text="Пользователи", callback_data="adm:users:0"), InlineKeyboardButton(text="Оплаты", callback_data="adm:payments:0")],
         [InlineKeyboardButton(text="Рефералы", callback_data="adm:referrals:0"), InlineKeyboardButton(text="Доступы", callback_data="adm:access:0")],
         [InlineKeyboardButton(text="Подключения", callback_data="adm:connections:0"), InlineKeyboardButton(text="Настройки", callback_data="adm:settings:0")],
+        [InlineKeyboardButton(
+            text=("Формат офера: Премиум ⭐💎" if get_offer_amount_style() == "premium" else "Формат офера: Stars / Gram"),
+            callback_data="adm:amount_style:0"
+        )],
         [InlineKeyboardButton(text="Рассылка", callback_data="adm:broadcast:0"), InlineKeyboardButton(text="Журналы", callback_data="adm:system:0")],
         [InlineKeyboardButton(text="Баннер", callback_data="adm:banner:0"), InlineKeyboardButton(text="Профиль передачи", callback_data="adm:change_profile:0")],
         [InlineKeyboardButton(text="Фото пранка", callback_data="adm:prankphoto:0"),
@@ -2183,11 +2187,8 @@ async def admin_callback(call: CallbackQuery):
         await call.answer(f"Выбран формат: {label}")
         # Return to settings; the user can toggle again at any time.
         await call.message.edit_text(
-            f"<b>Формат суммы в офере:</b> {label}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="Переключить формат", callback_data="adm:amount_style:0")],
-                [InlineKeyboardButton(text="Назад к настройкам", callback_data="adm:settings:0")]
-            ])
+            f"<b>Формат суммы в офере изменён:</b> {label}",
+            reply_markup=admin_keyboard()
         )
         return
 
