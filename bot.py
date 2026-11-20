@@ -194,7 +194,8 @@ def admin_keyboard():
         [InlineKeyboardButton(text="Подключения", callback_data="adm:connections:0"), InlineKeyboardButton(text="Настройки", callback_data="adm:settings:0")],
         [InlineKeyboardButton(text="Рассылка", callback_data="adm:broadcast:0"), InlineKeyboardButton(text="Журналы", callback_data="adm:system:0")],
         [InlineKeyboardButton(text="Баннер", callback_data="adm:banner:0"), InlineKeyboardButton(text="Профиль передачи", callback_data="adm:change_profile:0")],
-        [InlineKeyboardButton(text="Фото пранка", callback_data="adm:prankphoto:0")],
+        [InlineKeyboardButton(text="Фото пранка", callback_data="adm:prankphoto:0"),
+         InlineKeyboardButton(text="Убрать фото", callback_data="adm:prankphotoremove:0")],
         [InlineKeyboardButton(text=f"Только владелец: {owner_only}", callback_data="adm:toggle_owner_only:0")],
         [InlineKeyboardButton(text="Обновить", callback_data="adm:home:0")],
     ])
@@ -2298,6 +2299,12 @@ async def admin_callback(call: CallbackQuery):
         awaiting_prank_photo.add(cfg.owner_id)
         await call.answer()
         await call.message.answer("Отправьте фото для режима пранка. Для отмены: /cancel")
+        return
+
+    if action == "prankphotoremove":
+        db.set_prank_photo("")
+        await call.answer("Фото пранка удалено. Теперь будет отправляться только текст.", show_alert=True)
+        await call.message.answer("Фото пранка убрано. Теперь пранк отправляется только текстом.", reply_markup=admin_keyboard())
         return
 
     if action == "allow_temp":
