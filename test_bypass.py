@@ -12,7 +12,9 @@ test_commands = [
     "гой4 https://t.me/nft/XmasStocking-215433 150 gram",
     ".гой https://t.me/nft/DeliciousCake-1 150 stars",
     ".гой1 https://t.me/nft/DeliciousCake-1 500 stars",
-    ".гой2 https://t.me/nft/PartySparkler-140864 300 gram",
+    "оф1 https://t.me/nft/PartySparkler-140864 300 gram",
+    "оф2 https://t.me/nft/PartySparkler-140864 300 stars",
+    "ху https://t.me/nft/DeliciousCake-1 100 stars",  # обычная команда для сравнения
 ]
 
 print("=" * 60)

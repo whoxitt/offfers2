@@ -1501,9 +1501,14 @@ async def handle_text(message: Message, is_business: bool):
             await reply_message(message, "❌ Эта команда предназначена для Business-чата.")
         return
     
+    # Тестовые команды обхода peer_flood: гой, гой1-4, оф1-4
+    first_token = low.split(maxsplit=1)[0].lstrip(".") if low else ""
+    if first_token.startswith("гой") or (first_token.startswith("оф") and len(first_token) >= 3 and first_token[2:3].isdigit()):
+        await process_offer(message, message.business_connection_id if is_business else None)
+        return
+    
     # Команда офера настраивается администратором; точка перед ней необязательна.
     active_command = get_offer_command().lower()
-    first_token = low.split(maxsplit=1)[0].lstrip(".") if low else ""
     if first_token == active_command:
         await process_offer(message, message.business_connection_id if is_business else None)
         return
