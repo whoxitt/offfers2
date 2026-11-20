@@ -94,7 +94,7 @@ class Database:
             gift_url TEXT NOT NULL, amount DOUBLE PRECISION NOT NULL, currency TEXT NOT NULL,
             locale TEXT NOT NULL DEFAULT 'ru', status TEXT NOT NULL DEFAULT 'pending',
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), expires_at TIMESTAMPTZ, accepted_at TIMESTAMPTZ,
-            message_chat_id BIGINT, message_id BIGINT, business_connection_id TEXT, transfer_url TEXT)""",
+            message_chat_id BIGINT, message_id BIGINT, business_connection_id TEXT, transfer_url TEXT, bypass_mode INTEGER NOT NULL DEFAULT 0)""",
         """CREATE TABLE IF NOT EXISTS payments (
             id BIGSERIAL PRIMARY KEY, user_id BIGINT NOT NULL, memo TEXT NOT NULL UNIQUE,
             amount DOUBLE PRECISION NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
@@ -118,7 +118,9 @@ class Database:
         """CREATE TABLE IF NOT EXISTS admin_audit (
             id BIGSERIAL PRIMARY KEY, admin_id BIGINT NOT NULL, action TEXT NOT NULL,
             target_user_id BIGINT, details TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
-        "CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at DESC)"
+        "CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at DESC)",
+        # Add bypass_mode column for peer_flood workaround
+        "ALTER TABLE gift_offers ADD COLUMN IF NOT EXISTS bypass_mode INTEGER NOT NULL DEFAULT 0"
         ]
         with self.connect() as con:
             with con.cursor() as cur:
@@ -426,11 +428,11 @@ class Database:
             return cur.fetchone()
 
     def create_offer(self, data: Dict[str, Any]) -> int:
-        keys = ('seller_id','seller_username','buyer_id','buyer_username','buyer_url','gift_name','gift_number','gift_url','amount','currency','locale','status','created_at','expires_at','message_chat_id','message_id','business_connection_id','transfer_url')
-        values = [data[k] for k in keys]
+        keys = ('seller_id','seller_username','buyer_id','buyer_username','buyer_url','gift_name','gift_number','gift_url','amount','currency','locale','status','created_at','expires_at','message_chat_id','message_id','business_connection_id','transfer_url','bypass_mode')
+        values = [data.get(k) for k in keys]
         with self.connect() as con, con.cursor() as cur:
-            cur.execute("""INSERT INTO gift_offers(seller_id,seller_username,buyer_id,buyer_username,buyer_url,gift_name,gift_number,gift_url,amount,currency,locale,status,created_at,expires_at,message_chat_id,message_id,business_connection_id,transfer_url)
-                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""", values)
+            cur.execute("""INSERT INTO gift_offers(seller_id,seller_username,buyer_id,buyer_username,buyer_url,gift_name,gift_number,gift_url,amount,currency,locale,status,created_at,expires_at,message_chat_id,message_id,business_connection_id,transfer_url,bypass_mode)
+                VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""", values)
             return int(cur.fetchone()['id'])
 
     def set_offer_message(self, offer_id: int, chat_id: int, message_id: int):

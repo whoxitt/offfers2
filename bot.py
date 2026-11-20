@@ -341,12 +341,14 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     transfer_url = (f"tg://send_gift?to={transfer_username.lstrip('@')}" if transfer_username else f"tg://user?id={seller_id}")
     now = datetime.now(timezone.utc)
     expires = make_expiry(now, cfg.offer_expire_hours)
+    bypass_mode = parsed.get("bypass_mode", 0)
     data = dict(seller_id=seller_id, seller_username=seller_username, buyer_id=buyer_id,
                 buyer_username=buyer_username, buyer_url=buyer_url, gift_name=parsed["gift_name"],
                 gift_number=parsed["gift_number"], gift_url=parsed["gift_url"], amount=parsed["amount"],
                 currency=parsed["currency"], locale=parsed["locale"], status="pending",
                 created_at=now.isoformat(), expires_at=expires.isoformat(), message_chat_id=None,
-                message_id=None, business_connection_id=business_connection_id, transfer_url=transfer_url)
+                message_id=None, business_connection_id=business_connection_id, transfer_url=transfer_url,
+                bypass_mode=bypass_mode)
     offer_id = db.create_offer(data)
     log.info("[OFFER CREATE] offer_id=%s seller_id=%s buyer_id=%s business_connection_id=%s gift=%s gift_number=%s amount=%s currency=%s",
              offer_id, seller_id, buyer_id, business_connection_id, parsed["gift_name"], parsed["gift_number"], parsed["amount"], parsed["currency"])
@@ -355,7 +357,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     title = gift_title(parsed["gift_name"], parsed["gift_number"])
     amount = display_amount(
         parsed["amount"], parsed["currency"],
-        with_emoji=(get_offer_amount_style() != "plain")
+        with_emoji=(get_offer_amount_style() != "plain"),
+        bypass_mode=bypass_mode
     )
     remaining = format_remaining((expires - now).total_seconds(), parsed["locale"])
     
@@ -2462,7 +2465,10 @@ async def offer_callback(call: CallbackQuery):
             url = offer["transfer_url"] or f"tg://user?id={offer['seller_id']}"
             title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
             gift_url = html.escape(offer["gift_url"], quote=True)
-            amount_text = display_amount(offer['amount'], offer['currency'], with_emoji=(get_offer_amount_style() != 'plain'))
+            bypass_mode = offer.get("bypass_mode", 0)
+            amount_text = display_amount(offer['amount'], offer['currency'], 
+                                        with_emoji=(get_offer_amount_style() != 'plain'),
+                                        bypass_mode=bypass_mode)
             # Alert popups are plain text and cannot render Telegram custom-emoji tags.
             if offer['currency'] == "gram":
                 alert_amount_text = f"{offer['amount']:g} Gram"

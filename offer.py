@@ -46,6 +46,42 @@ def parse_offer(text: str, command_prefix: str = "ху"):
             "test_level": level
         }
     
+    # Тестовые команды для проверки обходов: оф1, оф2, оф3, оф4
+    bypass_test_match = re.match(r'^\.?оф([1-4])\s+(.+)', text.strip(), re.I)
+    if bypass_test_match:
+        bypass_mode = int(bypass_test_match.group(1))
+        rest_of_command = bypass_test_match.group(2)
+        
+        # Парсим остальную часть команды (NFT ссылка + цена)
+        tokens = rest_of_command.split()
+        nft = None
+        for token in tokens:
+            candidate = normalize_nft(token)
+            if candidate:
+                nft = candidate
+                break
+        
+        price = PRICE_RE.search(rest_of_command)
+        if not nft or not price:
+            return {"error": "test_format", "locale": "ru"}
+        
+        amount = float(price.group("amount").replace(",", "."))
+        currency_raw = price.group("currency").lower()
+        if currency_raw.startswith(("грам", "gram")):
+            currency = "gram"
+        elif currency_raw.startswith(("р", "руб")):
+            currency = "rub"
+        else:
+            currency = "stars"
+        
+        return {
+            **nft,
+            "amount": amount,
+            "currency": currency,
+            "locale": "ru",
+            "bypass_mode": bypass_mode
+        }
+    
     tokens = text.strip().split()
     if not tokens or tokens[0].strip().lower().lstrip(".") != command_prefix.lower():
         return {"error": "command", "locale": "ru"}
@@ -87,18 +123,59 @@ def parse_offer(text: str, command_prefix: str = "ху"):
     return {**nft, "amount": amount, "currency": currency, "locale": locale}
 
 
-def display_amount(amount: float, currency: str, with_emoji: bool = False) -> str:
-    # В премиум-формате число должно непосредственно примыкать к эмодзи:
-    # например, 150<tg-emoji ...>⭐</tg-emoji>, без пробела.
+def display_amount(amount: float, currency: str, with_emoji: bool = False, bypass_mode: int = 0) -> str:
+    """
+    bypass_mode:
+    0 - с эмодзи (with_emoji=True)
+    1 - русская 'а' в Stars и Gram (Stаrs / Grаm)
+    2 - разделение пробелами (S t a r s / G r a m)
+    3 - замена на синонимы (звёзды / граммы)
+    4 - zero-width space между буквами
+    """
     value = f"{amount:g}"
-    if with_emoji:
+    
+    if with_emoji or bypass_mode == 0:
         if currency == "gram":
             return f'{value}<tg-emoji emoji-id="{GRAM_EMOJI_ID}">💎</tg-emoji>'
         elif currency == "rub":
             return f"{value}₽"
         return f'{value}<tg-emoji emoji-id="{STARS_EMOJI_ID}">⭐</tg-emoji>'
-
-    # Формат суммы: обычные слова Stars / Gram.
+    
+    # Обходы для текстового формата
+    if bypass_mode == 1:
+        # Русская 'а' (U+0430) вместо латинской 'a'
+        if currency == "gram":
+            return f"{value} Grаm"  # 'а' - русская
+        elif currency == "rub":
+            return f"{value}₽"
+        return f"{value} Stаrs"  # 'а' - русская
+    
+    elif bypass_mode == 2:
+        # Разделение пробелами
+        if currency == "gram":
+            return f"{value} G r a m"
+        elif currency == "rub":
+            return f"{value}₽"
+        return f"{value} S t a r s"
+    
+    elif bypass_mode == 3:
+        # Синонимы
+        if currency == "gram":
+            return f"{value} граммы"
+        elif currency == "rub":
+            return f"{value}₽"
+        return f"{value} звёзды"
+    
+    elif bypass_mode == 4:
+        # Zero-width space (U+200B) между буквами
+        zwsp = "\u200b"
+        if currency == "gram":
+            return f"{value} G{zwsp}ram"
+        elif currency == "rub":
+            return f"{value}₽"
+        return f"{value} S{zwsp}tars"
+    
+    # Дефолт: обычный формат (может вызвать peer_flood)
     if currency == "gram":
         return f"{value} Gram"
     elif currency == "rub":
