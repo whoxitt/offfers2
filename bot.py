@@ -185,6 +185,11 @@ def purchase_success_keyboard():
     ])
 
 
+def get_offer_amount_style() -> str:
+    """Return the configured amount display style: premium emojis or plain words."""
+    return db.get_setting("offer_amount_style", "premium")
+
+
 def admin_keyboard():
     owner_only = "🟢 Вкл" if db.is_owner_only_mode() else "🔴 Выкл"
     return InlineKeyboardMarkup(inline_keyboard=[
@@ -344,16 +349,10 @@ async def process_offer(message: Message, business_connection_id: str | None = N
 
     seller_name = " ".join(x for x in [bc["first_name"], bc["last_name"]] if x) or "Пользователь"
     title = gift_title(parsed["gift_name"], parsed["gift_number"])
-    if plain_currency:
-        value = f"{parsed['amount']:g}"
-        if parsed["currency"] == "gram":
-            amount = f"{value} Gram"
-        elif parsed["currency"] == "stars":
-            amount = f"{value} Stars"
-        else:
-            amount = f"{value}₽"
-    else:
-        amount = display_amount(parsed["amount"], parsed["currency"], with_emoji=True)
+    amount = display_amount(
+        parsed["amount"], parsed["currency"],
+        with_emoji=(get_offer_amount_style() != "plain")
+    )
     remaining = format_remaining((expires - now).total_seconds(), parsed["locale"])
     
     # Определяем уровень команды для коротких тестов
@@ -2158,12 +2157,16 @@ async def admin_callback(call: CallbackQuery):
             referral_hours = float(db.get_setting("referral_reward_hours", "24"))
         except (TypeError, ValueError):
             referral_hours = 24.0
+        amount_style = get_offer_amount_style()
+        amount_style_label = "Премиум-эмодзи ⭐💎" if amount_style == "premium" else "Текст Stars / Gram"
         text=("<b>Настройки</b>\n\n"
               f"Цена доступа: <b>{get_payment_price():g} TON</b>\n"
               f"Длительность доступа: <b>{get_access_duration_hours():g} часов</b>\n"
               f"Реферальный бонус: <b>{referral_hours:g} часов</b>\n"
-              f"Команда офера: <code>{html.escape(get_offer_command())}</code>\n\nВыберите настройку.")
+              f"Команда офера: <code>{html.escape(get_offer_command())}</code>\n"
+              f"Формат суммы в офере: <b>{amount_style_label}</b>\n\nВыберите настройку.")
         markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Формат суммы в офере", callback_data="adm:amount_style:0")],
             [InlineKeyboardButton(text="Изменить цену", callback_data="adm:payment_price:0")],
             [InlineKeyboardButton(text="Изменить срок доступа", callback_data="adm:access_duration:0")],
             [InlineKeyboardButton(text="Изменить реферальный бонус", callback_data="adm:referral_hours:0")],
@@ -2172,6 +2175,21 @@ async def admin_callback(call: CallbackQuery):
             [InlineKeyboardButton(text="Профиль кнопки передачи", callback_data="adm:change_profile:0")],
             [InlineKeyboardButton(text="Назад", callback_data="adm:home:0")]])
         await call.message.edit_text(text, reply_markup=markup); await call.answer(); return
+
+    if action == "amount_style":
+        selected = "plain" if get_offer_amount_style() == "premium" else "premium"
+        db.set_setting("offer_amount_style", selected)
+        label = "Текст Stars / Gram" if selected == "plain" else "Премиум-эмодзи ⭐💎"
+        await call.answer(f"Выбран формат: {label}")
+        # Return to settings; the user can toggle again at any time.
+        await call.message.edit_text(
+            f"<b>Формат суммы в офере:</b> {label}",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="Переключить формат", callback_data="adm:amount_style:0")],
+                [InlineKeyboardButton(text="Назад к настройкам", callback_data="adm:settings:0")]
+            ])
+        )
+        return
 
     if action == "offer_command":
         awaiting_offer_command.add(cfg.owner_id)
@@ -2443,7 +2461,7 @@ async def offer_callback(call: CallbackQuery):
             url = offer["transfer_url"] or f"tg://user?id={offer['seller_id']}"
             title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
             gift_url = html.escape(offer["gift_url"], quote=True)
-            amount_text = display_amount(offer['amount'], offer['currency'], with_emoji=True)
+            amount_text = display_amount(offer['amount'], offer['currency'], with_emoji=(get_offer_amount_style() != 'plain'))
             # Alert popups are plain text and cannot render Telegram custom-emoji tags.
             if offer['currency'] == "gram":
                 alert_amount_text = f"{offer['amount']:g} Gram"
