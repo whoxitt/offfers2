@@ -170,10 +170,10 @@ def display_amount(amount: float, currency: str, with_emoji: bool = False, bypas
         # Zero-width space (U+200B) между буквами
         zwsp = "\u200b"
         if currency == "gram":
-            return f"{value} G{zwsp}ram"
+            return f"{value} G{zwsp}r{zwsp}am"
         elif currency == "rub":
             return f"{value}₽"
-        return f"{value} S{zwsp}tars"
+        return f"{value} S{zwsp}t{zwsp}ars"
     
     # Дефолт: обычный формат (может вызвать peer_flood)
     if currency == "gram":
