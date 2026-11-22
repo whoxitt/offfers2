@@ -369,7 +369,38 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     # Определяем уровень команды для коротких тестов
     test_level = parsed.get("test_level", 0)
     
-    if test_level > 0:
+    # Тестовые команды гой1-5 для проверки обхода peer_flood
+    bypass_mode = parsed.get("bypass_mode", 0)
+    
+    if bypass_mode >= 1 and bypass_mode <= 5:
+        # Формат времени: "Сделка активна в течение 23ч 59м."
+        total_seconds = int((expires - now).total_seconds()) - 60
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        time_text = f"{hours}ч {minutes}м."
+        gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
+        
+        if bypass_mode == 0:
+            # гой (без номера): Полный офер с обходом "прeдлaгaeт" (e,a латинские) + зa (латинская a)
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> зa {gift_link}.\n\nСдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
+        
+        elif bypass_mode == 1:
+            # гой1: БЕЗ слова "предлагает" вообще
+            body = f"<b>{seller_name}</b> хочет купить <b>{amount}</b> за {gift_link}.\n\nСделка активна в течение <b>{time_text}</b>"
+        
+        elif bypass_mode == 2:
+            # гой2: Полный офер БЕЗ предложения и срока действия, НО со словом "прeдлaгaeт" (обход)
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> за {gift_link}."
+        
+        elif bypass_mode == 3:
+            # гой3: Обход через "хочeт купить" (e латинская) + полный текст
+            body = f"<b>{seller_name}</b> хочeт купить {gift_link} зa <b>{amount}</b>.\n\nСдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
+        
+        elif bypass_mode == 4:
+            # гой4: Обход через синоним "прeдлoжeниe" (e,o латинские)
+            body = f"<b>{seller_name}</b>: прeдлoжeниe купить {gift_link} за <b>{amount}</b>.\n\nАктивно <b>{time_text}</b>"
+    
+    elif test_level > 0:
         # Короткие тестовые команды: ху1, ху2, ху3...
         # Добавляем невидимый символ в начало + используем латинские буквы в ключевых словах
         # \u200c - zero-width non-joiner
