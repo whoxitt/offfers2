@@ -22,7 +22,7 @@ class Config:
     channel_id: str = ""
     channel_url: str = ""
     support_url: str = "https://t.me/witensea"
-    users_chat_url: str = "https://t.me/"
+    users_chat_url: str = ""
     offer_expire_hours: float = 24.0
     bot_username: str = ""
     # Настройки оплаты
@@ -70,7 +70,7 @@ def load_config() -> Config:
         channel_id=os.getenv("CHANNEL_ID", "").strip(),
         channel_url=os.getenv("CHANNEL_URL", "").strip(),
         support_url=os.getenv("SUPPORT_URL", "https://t.me/witensea").strip(),
-        users_chat_url=os.getenv("USERS_CHAT_URL", "https://t.me/").strip(),
+        users_chat_url=os.getenv("USERS_CHAT_URL", "").strip(),
         offer_expire_hours=float(os.getenv("OFFER_EXPIRE_HOURS", "24")),
         bot_username=os.getenv("BOT_USERNAME", "").strip().lstrip("@"),
         payment_price=float(os.getenv("PAYMENT_PRICE", "150")),
