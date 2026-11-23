@@ -77,7 +77,11 @@ class Database:
         "DELETE FROM offer_access_users WHERE source='trial'",
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS expiry_admin_reminder_sent_at TIMESTAMPTZ",
         "ALTER TABLE offer_access_users ADD COLUMN IF NOT EXISTS expired_notified_at TIMESTAMPTZ",
-        "CREATE TABLE IF NOT EXISTS offer_blocked_users (user_id BIGINT PRIMARY KEY)",
+         "CREATE TABLE IF NOT EXISTS offer_blocked_users (user_id BIGINT PRIMARY KEY)",
+        """CREATE TABLE IF NOT EXISTS bot_admins (
+            user_id BIGINT PRIMARY KEY,
+            added_by BIGINT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
         "CREATE TABLE IF NOT EXISTS offer_access_links (child_user_id BIGINT PRIMARY KEY, owner_user_id BIGINT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())",
         # Upgrade legacy installations too: CREATE TABLE IF NOT EXISTS does not
         # add columns when the table was created by an older bot version.
@@ -139,6 +143,33 @@ class Database:
             with con.cursor() as cur:
                 for statement in statements:
                     cur.execute(statement)
+
+
+    def is_admin(self, user_id: int, owner_id: int) -> bool:
+        if int(user_id) == int(owner_id):
+            return True
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT 1 FROM bot_admins WHERE user_id=%s", (int(user_id),))
+            return cur.fetchone() is not None
+
+    def add_admin(self, user_id: int, added_by: int) -> bool:
+        if int(user_id) == int(added_by):
+            return False
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute(
+                "INSERT INTO bot_admins(user_id,added_by) VALUES(%s,%s) ON CONFLICT(user_id) DO NOTHING",
+                (int(user_id), int(added_by)))
+            return cur.rowcount > 0
+
+    def remove_admin(self, user_id: int) -> bool:
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("DELETE FROM bot_admins WHERE user_id=%s", (int(user_id),))
+            return cur.rowcount > 0
+
+    def list_admins(self):
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("SELECT user_id,added_by,created_at FROM bot_admins ORDER BY created_at")
+            return cur.fetchall()
 
     def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
         with self.connect() as con, con.cursor() as cur:
