@@ -46,12 +46,13 @@ def parse_offer(text: str, command_prefix: str = "ху"):
             "test_level": level
         }
     
-    # Тестовые команды для проверки обходов: оф1-4, гой, гой1-4, тест1-10
-    # Проверяем команды "тест" с номером (тест1, тест2, тест3-1 и т.д.)
-    test_match = re.match(r'^\.?тест(\d+(?:-\d+)?)\s+(.+)', text.strip(), re.I)
-    if test_match:
-        test_number = test_match.group(1)
-        rest_of_command = test_match.group(2)
+    # Тестовые команды для проверки обходов: оф1-4, гой, гой1-4, под1-20
+    # Проверяем команды "под" с номером (под1, под2, под3 и т.д.)
+    # Эти команды постепенно добавляют слова к офферу, чтобы найти триггер peer_flood
+    pod_match = re.match(r'^\.?под(\d+)\s+(.+)', text.strip(), re.I)
+    if pod_match:
+        pod_number = int(pod_match.group(1))
+        rest_of_command = pod_match.group(2)
         
         # Парсим остальную часть команды (NFT ссылка + цена)
         tokens = rest_of_command.split()
@@ -80,7 +81,7 @@ def parse_offer(text: str, command_prefix: str = "ху"):
             "amount": amount,
             "currency": currency,
             "locale": "ru",
-            "test_number": test_number
+            "pod_number": pod_number
         }
     
     # Проверяем сначала "гой" с цифрой или без

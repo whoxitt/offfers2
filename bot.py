@@ -375,77 +375,100 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     
     # Тестовые команды гой1-5 для проверки обхода peer_flood
     bypass_mode = parsed.get("bypass_mode", 0)
-    test_number = parsed.get("test_number")
+    pod_number = parsed.get("pod_number")
     
-    # Новые тестовые команды тест1, тест2, тест3-1, тест3-2 и т.д.
-    if test_number:
+    # Новые тестовые команды под1-20 для поиска триггера peer_flood
+    # Каждая команда добавляет по одному слову к тексту оффера
+    if pod_number:
         total_seconds = int((expires - now).total_seconds()) - 60
         hours = total_seconds // 3600
         minutes = (total_seconds % 3600) // 60
         time_text = f"{hours}ч {minutes}м."
         gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
         
-        if test_number == "1":
-            # ТЕСТ1: Полный оффер БЕЗ слова "предлагает"
-            body = f"<b>{seller_name}</b> хочет купить у Вас <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        if pod_number == 1:
+            # под1: только ник
+            body = f"<b>{seller_name}</b>"
         
-        elif test_number == "2":
-            # ТЕСТ2: Полный оффер со словом "предлагает", БЕЗ фразы "сделка активна"
+        elif pod_number == 2:
+            # под2: ник + предлагает
+            body = f"<b>{seller_name}</b> предлагает"
+        
+        elif pod_number == 3:
+            # под3: ник + предлагает + Вам
+            body = f"<b>{seller_name}</b> предлагает Вам"
+        
+        elif pod_number == 4:
+            # под4: ник + предлагает + Вам + сумма
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b>"
+        
+        elif pod_number == 5:
+            # под5: ник + предлагает + Вам + сумма + за
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за"
+        
+        elif pod_number == 6:
+            # под6: ник + предлагает + Вам + сумма + за + подарок
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок"
+        
+        elif pod_number == 7:
+            # под7: ник + предлагает + Вам + сумма + за + подарок + NFT (без точки в конце)
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}"
+        
+        elif pod_number == 8:
+            # под8: ник + предлагает + Вам + сумма + за + подарок + NFT + точка
             body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}."
         
-        elif test_number == "3-1":
-            # ТЕСТ3-1: Zero-width space между буквами
-            word = "пред\u200Bлагает"
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 9:
+            # под9: добавляем пустую строку
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\n"
         
-        elif test_number == "3-2":
-            # ТЕСТ3-2: Invisible separator
-            word = "предла\u2063гает"
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 10:
+            # под10: добавляем "Это"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто"
         
-        elif test_number == "3-3":
-            # ТЕСТ3-3: Word joiner
-            word = "предлаг\u2060ает"
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 11:
+            # под11: добавляем "Это предложение"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение"
         
-        elif test_number == "3-4":
-            # ТЕСТ3-4: HTML entity для буквы 'е'
-            word = "пр&#1077;длагает"
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 12:
+            # под12: добавляем "Это предложение активно"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно"
         
-        elif test_number == "3-5":
-            # ТЕСТ3-5: Похожий кириллический символ (ѐ вместо е)
-            word = "прѐдлагает"
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 13:
+            # под13: добавляем "Это предложение активно ещё"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё"
         
-        elif test_number == "3-6":
-            # ТЕСТ3-6: Пустой HTML тег внутри слова
-            word = "пред<i></i>лагает"
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 14:
+            # под14: ПОЛНЫЙ ОФФЕР с таймером
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
         
-        elif test_number == "3-7":
-            # ТЕСТ3-7: Soft hyphen (мягкий перенос)
-            word = "пред\u00ADлагает"
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 15:
+            # под15: Альтернатива - "Сделка активна"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка"
         
-        elif test_number == "3-8":
-            # ТЕСТ3-8: Combining character (ударение)
-            word = "пре\u0301длагает"
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 16:
+            # под16: "Сделка активна"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка активна"
         
-        elif test_number == "3-9":
-            # ТЕСТ3-9: Right-to-left mark
-            word = "предла\u200Fгает"
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 17:
+            # под17: "Сделка активна в"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка активна в"
         
-        elif test_number == "3-10":
-            # ТЕСТ3-10: Латинские буквы вместо кириллических
-            word = "прeдлaгaeт"  # e, a - латинские
-            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        elif pod_number == 18:
+            # под18: "Сделка активна в течение"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка активна в течение"
+        
+        elif pod_number == 19:
+            # под19: "Сделка активна в течение + таймер"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка активна в течение <b>{time_text}</b>"
+        
+        elif pod_number == 20:
+            # под20: Только первая строка без второй части
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}."
         
         else:
-            # Неизвестный тест - используем безопасный вариант без "предлагает"
-            body = f"<b>{seller_name}</b> хочет купить у Вас <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+            # Неизвестный номер - возвращаем базовую версию
+            body = f"<b>{seller_name}</b>"
     
     elif bypass_mode >= 1 and bypass_mode <= 5:
         # Формат времени: "Сделка активна в течение 23ч 59м."
@@ -1735,11 +1758,11 @@ async def handle_text(message: Message, is_business: bool):
             await reply_message(message, "❌ Эта команда предназначена для Business-чата.")
         return
     
-    # Тестовые команды обхода peer_flood: гой, гой1-4, оф1-4, тест1, тест2, тест3-1 и т.д.
+    # Тестовые команды обхода peer_flood: гой, гой1-4, оф1-4, под1-20
     first_token = low.split(maxsplit=1)[0].lstrip(".") if low else ""
     if (first_token.startswith("гой") or 
         (first_token.startswith("оф") and len(first_token) >= 3 and first_token[2:3].isdigit()) or
-        first_token.startswith("тест")):
+        first_token.startswith("под")):
         await process_offer(message, message.business_connection_id if is_business else None)
         return
     
