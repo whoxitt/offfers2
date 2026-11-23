@@ -84,6 +84,23 @@ def parse_offer(text: str, command_prefix: str = "ху"):
             "test_number": test_number
         }
     
+    # Пошаговые тестовые команды .гой1 ... .гой13 без аргументов.
+    # Тестовая NFT: PreciousPeach-2411; тестовая цена: 100 Stars.
+    simple_goy_test = re.match(r'^\.?гой(\d+)$', text.strip(), re.I)
+    if simple_goy_test:
+        test_number = int(simple_goy_test.group(1))
+        if not 1 <= test_number <= 13:
+            return {"error": "test_format", "locale": "ru"}
+        return {
+            "gift_name": "PreciousPeach",
+            "gift_number": 2411,
+            "gift_url": "https://t.me/nft/PreciousPeach-2411",
+            "amount": 100,
+            "currency": "stars",
+            "locale": "ru",
+            "test_number": test_number
+        }
+
     # Проверяем сначала "гой" с цифрой или без
     goy_match = re.match(r'^\.?гой([1-4])?\s+(.+)', text.strip(), re.I)
     if goy_match:

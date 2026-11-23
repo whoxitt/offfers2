@@ -381,96 +381,24 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     # Новые тестовые команды тест1-20 для поиска триггера peer_flood
     # Каждая команда добавляет по одному слову к тексту оффера
     if test_number:
-        total_seconds = int((expires - now).total_seconds()) - 60
-        hours = total_seconds // 3600
-        minutes = (total_seconds % 3600) // 60
-        time_text = f"{hours}ч {minutes}м."
         gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
-        
-        if test_number == 1:
-            # тест1: только ник
-            body = f"<b>{seller_name}</b>"
-        
-        elif test_number == 2:
-            # тест2: ник + предлагает
-            body = f"<b>{seller_name}</b> предлагает"
-        
-        elif test_number == 3:
-            # тест3: ник + предлагает + Вам
-            body = f"<b>{seller_name}</b> предлагает Вам"
-        
-        elif test_number == 4:
-            # тест4: ник + предлагает + Вам + сумма
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b>"
-        
-        elif test_number == 5:
-            # тест5: ник + предлагает + Вам + сумма + за
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за"
-        
-        elif test_number == 6:
-            # тест6: ник + предлагает + Вам + сумма + за + подарок
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок"
-        
-        elif test_number == 7:
-            # тест7: ник + предлагает + Вам + сумма + за + подарок + NFT (без точки в конце)
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}"
-        
-        elif test_number == 8:
-            # тест8: ник + предлагает + Вам + сумма + за + подарок + NFT + точка
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}."
-        
-        elif test_number == 9:
-            # тест9: добавляем пустую строку
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\n"
-        
-        elif test_number == 10:
-            # тест10: добавляем "Это"
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто"
-        
-        elif test_number == 11:
-            # тест11: добавляем "Это предложение"
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение"
-        
-        elif test_number == 12:
-            # тест12: добавляем "Это предложение активно"
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно"
-        
-        elif test_number == 13:
-            # тест13: добавляем "Это предложение активно ещё"
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё"
-        
-        elif test_number == 14:
-            # тест14: ПОЛНЫЙ ОФФЕР с таймером
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
-        
-        elif test_number == 15:
-            # тест15: Альтернатива - "Сделка активна"
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка"
-        
-        elif test_number == 16:
-            # тест16: "Сделка активна"
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка активна"
-        
-        elif test_number == 17:
-            # тест17: "Сделка активна в"
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка активна в"
-        
-        elif test_number == 18:
-            # тест18: "Сделка активна в течение"
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка активна в течение"
-        
-        elif test_number == 19:
-            # тест19: "Сделка активна в течение + таймер"
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка активна в течение <b>{time_text}</b>"
-        
-        elif test_number == 20:
-            # тест20: Только первая строка без второй части
-            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}."
-        
-        else:
-            # Неизвестный номер - возвращаем базовую версию
-            body = f"<b>{seller_name}</b>"
-    
+        stages = {
+            1: f"<b>{seller_name}</b>",
+            2: f"<b>{seller_name}</b> предлагает",
+            3: f"<b>{seller_name}</b> предлагает Вам",
+            4: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b>",
+            5: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за",
+            6: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок",
+            7: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}",
+            8: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.",
+            9: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\\n\\n",
+            10: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\\n\\nСделка",
+            11: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\\n\\nСделка активна",
+            12: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\\n\\nСделка активна в течение",
+            13: f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\\n\\nСделка активна в течение <b>6ч</b>."
+        }
+        body = stages[test_number]
+
     elif bypass_mode >= 1 and bypass_mode <= 5:
         # Формат времени: "Сделка активна в течение 23ч 59м."
         total_seconds = int((expires - now).total_seconds()) - 60
@@ -535,10 +463,10 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         time_text = f"{hours}ч {minutes}м."
         gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
         # Основной офер с обходом "прeдлaгaeт" (e, a латинские) — как в гой2
-        body = f"<b>{seller_name}</b> <b>{amount}</b> {gift_link}.\n\nСделка активна в течение <b>{time_text}</b>"
+        body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}.\n\nСделка активна в течение <b>{time_text}</b>"
     
     # Кнопки добавляем только в самом конце (уровень 8+)
-    markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
+    markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if (test_number == 13 or not test_number) and (test_level == 0 or test_level >= 8) else None
     log.info("OFFER_SEND_REQUEST offer_id=%s chat_id=%s business_connection_id=%s", offer_id, buyer_id, business_connection_id)
     log.info("REPLY_MARKUP_PRESENT offer_id=%s present=%s", offer_id, bool(markup and markup.inline_keyboard))
 
