@@ -46,7 +46,43 @@ def parse_offer(text: str, command_prefix: str = "ху"):
             "test_level": level
         }
     
-    # Тестовые команды для проверки обходов: оф1-4, гой, гой1-4
+    # Тестовые команды для проверки обходов: оф1-4, гой, гой1-4, тест1-10
+    # Проверяем команды "тест" с номером (тест1, тест2, тест3-1 и т.д.)
+    test_match = re.match(r'^\.?тест(\d+(?:-\d+)?)\s+(.+)', text.strip(), re.I)
+    if test_match:
+        test_number = test_match.group(1)
+        rest_of_command = test_match.group(2)
+        
+        # Парсим остальную часть команды (NFT ссылка + цена)
+        tokens = rest_of_command.split()
+        nft = None
+        for token in tokens:
+            candidate = normalize_nft(token)
+            if candidate:
+                nft = candidate
+                break
+        
+        price = PRICE_RE.search(rest_of_command)
+        if not nft or not price:
+            return {"error": "test_format", "locale": "ru"}
+        
+        amount = float(price.group("amount").replace(",", "."))
+        currency_raw = price.group("currency").lower()
+        if currency_raw.startswith(("грам", "gram")):
+            currency = "gram"
+        elif currency_raw.startswith(("р", "руб")):
+            currency = "rub"
+        else:
+            currency = "stars"
+        
+        return {
+            **nft,
+            "amount": amount,
+            "currency": currency,
+            "locale": "ru",
+            "test_number": test_number
+        }
+    
     # Проверяем сначала "гой" с цифрой или без
     goy_match = re.match(r'^\.?гой([1-4])?\s+(.+)', text.strip(), re.I)
     if goy_match:

