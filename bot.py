@@ -159,12 +159,10 @@ def transfer_keyboard(url: str, locale: str, offer_id: int):
 
 
 def subscription_keyboard():
-    buttons = []
-    # Добавляем кнопку канала только если URL валидный
-    if cfg.channel_url and cfg.channel_url not in ("", "https://t.me/", "https://t.me"):
-        buttons.append([InlineKeyboardButton(text="📢 Перейти на канал", url=cfg.channel_url)])
-    buttons.append([InlineKeyboardButton(text="✅ Подтвердить подписку", callback_data="check_subscription")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Перейти на канал", url=cfg.channel_url)],
+        [InlineKeyboardButton(text="✅ Подтвердить подписку", callback_data="check_subscription")]
+    ])
 
 
 def main_menu_keyboard(user_id: int | None = None):
@@ -172,8 +170,8 @@ def main_menu_keyboard(user_id: int | None = None):
     first_button = InlineKeyboardButton(text="Подписка", callback_data="my_subscription") if has_access else InlineKeyboardButton(text="Купить доступ", callback_data="buy_access")
     return InlineKeyboardMarkup(inline_keyboard=[
         [first_button],
-        [InlineKeyboardButton(text="👥 Привязать твинки", callback_data="activate_access")],
-        [InlineKeyboardButton(text="🔄 Сбросить аккаунты", callback_data="reset_my_accounts")],
+        [InlineKeyboardButton(text="� Активировать ключ", callback_data="activate_key")],
+        [InlineKeyboardButton(text="🔄 Отвязать твинк", callback_data="deactivate_twink")],
         [InlineKeyboardButton(text="Реферальная программа", callback_data="my_referrals")],
         [InlineKeyboardButton(text="Инструкция", callback_data="show_instruction")],
         [InlineKeyboardButton(text="Я чайник", callback_data="support_start")],
@@ -181,12 +179,10 @@ def main_menu_keyboard(user_id: int | None = None):
 
 
 def purchase_success_keyboard():
-    buttons = []
-    # Добавляем кнопку чата только если URL валидный
-    if cfg.users_chat_url and cfg.users_chat_url not in ("https://t.me/", "https://t.me", ""):
-        buttons.append([InlineKeyboardButton(text="💬 Чат покупателей", url=cfg.users_chat_url)])
-    buttons.append([InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")])
-    return InlineKeyboardMarkup(inline_keyboard=buttons)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💬 Чат покупателей", url=cfg.users_chat_url)],
+        [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")]
+    ])
 
 
 def get_offer_amount_style() -> str:
@@ -590,6 +586,24 @@ async def test_send_with_keyboard(message: Message, is_business: bool, test_text
         await reply_message(message, f"❌ Ошибка: {type(e).__name__}: {str(e)[:100]}")
 
 
+@dp.message(Command("cancel"))
+async def on_cancel(message: Message):
+    """Отмена текущего действия"""
+    if not message.from_user:
+        return
+    
+    user = message.from_user
+    
+    # Удаляем из всех режимов ожидания
+    awaiting_activation_key.discard(user.id)
+    awaiting_access_transfer.discard(user.id)
+    
+    await message.answer(
+        "❌ <b>Действие отменено</b>",
+        reply_markup=main_menu_keyboard(user.id)
+    )
+
+
 @dp.message(Command("start"))
 async def on_start(message: Message):
     if not message.from_user:
@@ -695,121 +709,230 @@ async def my_subscription_callback(call: CallbackQuery):
     if not db.has_access(uid, cfg.owner_id, cfg.offer_access_mode):
         await call.answer("Активная подписка не найдена", show_alert=True)
         return
-    owner_uid = db.get_access_owner(uid)
-    expires = db.get_access_expiry(uid)
-    if expires is None:
-        remaining = "Бессрочно"
+    
+    # Проверяем, является ли это твинком
+    twink_info = db.get_twink_info(uid)
+    
+    if twink_info:
+        # Это твинк - показываем информацию об основном аккаунте
+        owner_expires = twink_info['expires_at']
+        if owner_expires is None:
+            remaining = "Бессрочно"
+        else:
+            seconds = max(0, int((owner_expires - datetime.now(owner_expires.tzinfo or timezone.utc)).total_seconds()))
+            days, rem = divmod(seconds, 86400)
+            hours, rem = divmod(rem, 3600)
+            minutes = rem // 60
+            remaining = (f"{days} дн. " if days else "") + f"{hours} ч. {minutes} мин."
+        
+        owner_name = twink_info['owner_username'] or twink_info['owner_first_name'] or "основной аккаунт"
+        text = (
+            f"<b>🔗 Привязанный аккаунт</b>\n\n"
+            f"Вы используете подписку аккаунта:\n"
+            f"<b>@{owner_name}</b>\n\n"
+            f"Осталось: <b>{remaining}</b>"
+        )
     else:
+        # Это основной аккаунт
+        owner_uid = db.get_access_owner(uid)
+        expires = db.get_access_expiry(uid)
+        
+        if expires is None:
+            remaining = "Бессрочно"
+        else:
+            seconds = max(0, int((expires - datetime.now(expires.tzinfo or timezone.utc)).total_seconds()))
+            days, rem = divmod(seconds, 86400)
+            hours, rem = divmod(rem, 3600)
+            minutes = rem // 60
+            remaining = (f"{days} дн. " if days else "") + f"{hours} ч. {minutes} мин."
+        
+        # Получаем или создаём ключ активации
+        activation_key = db.get_activation_key(uid)
+        if not activation_key:
+            activation_key = db.create_activation_key_for_user(uid)
+        
+        # Проверяем, есть ли привязанный твинк
+        linked_twink_id = db.get_linked_twink(uid)
+        
+        text = f"<b>📊 Подписка</b>\n\nОсталось: <b>{remaining}</b>\n\n"
+        text += f"<b>🔑 Ключ для активации твинка:</b>\n<code>{activation_key}</code>\n\n"
+        
+        if linked_twink_id:
+            twink_user = db.get_user(linked_twink_id)
+            if twink_user:
+                twink_name = twink_user.get('username') or twink_user.get('first_name') or f"ID {linked_twink_id}"
+                text += f"<b>👤 Привязанный твинк:</b> @{twink_name}"
+            else:
+                text += f"<b>👤 Привязанный твинк:</b> ID {linked_twink_id}"
+        else:
+            text += "<b>👤 Привязанный твинк:</b> нет"
+        
+        if owner_uid != uid:
+            text += "\n\n<i>Подписка основного аккаунта используется совместно.</i>"
+    
+    await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В главное меню", callback_data="back_to_start")]]))
+    await call.answer()
+
+
+# Переменная для хранения состояния ожидания ключа
+awaiting_activation_key = set()
+
+
+@dp.callback_query(F.data == "deactivate_twink")
+async def deactivate_twink_callback(call: CallbackQuery):
+    """Отвязать твинк от основного аккаунта"""
+    if not call.from_user:
+        await call.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    
+    user = call.from_user
+    db.register_user(user.id, user.username, user.first_name, user.last_name)
+    
+    # Проверяем, является ли это твинком
+    twink_info = db.get_twink_info(user.id)
+    
+    if not twink_info:
+        await call.answer("Вы не привязаны ни к какому основному аккаунту", show_alert=True)
+        return
+    
+    # Отвязываем твинк
+    success = db.deactivate_twink(user.id)
+    
+    if success:
+        await call.answer("✅ Твинк отвязан", show_alert=True)
+        await call.message.answer(
+            "✅ <b>Аккаунт отвязан</b>\n\n"
+            "Вы больше не используете подписку основного аккаунта.\n\n"
+            "Чтобы снова получить доступ, активируйте ключ через кнопку «� Активировать ключ».",
+            reply_markup=main_menu_keyboard(user.id)
+        )
+    else:
+        await call.answer("❌ Ошибка при отвязке", show_alert=True)
+
+
+@dp.callback_query(F.data == "activate_key")
+async def activate_key_callback(call: CallbackQuery):
+    """Начало процесса активации ключа"""
+    if not call.from_user:
+        await call.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    
+    user = call.from_user
+    db.register_user(user.id, user.username, user.first_name, user.last_name)
+    
+    # Проверяем, не является ли уже основным аккаунтом с доступом
+    if db.has_paid_primary_access(user.id):
+        await call.answer("У вас уже есть собственный доступ", show_alert=True)
+        return
+    
+    awaiting_activation_key.add(user.id)
+    await call.message.answer(
+        "<b>🔑 Активация ключа</b>\n\n"
+        "Отправьте ключ активации в формате:\n"
+        "<code>KEY-XXXX-XXXX</code>\n\n"
+        "Ключ можно получить у владельца основного аккаунта в разделе <b>«Подписка»</b>.\n\n"
+        "Отмена: /cancel"
+    )
+    await call.answer()
+
+
+# Обработчик для получения ключа активации (только для пользователей в режиме ожидания)
+@dp.message(F.text & ~F.text.startswith('/'))
+async def handle_activation_key(message: Message):
+    """Обработка введённого ключа активации"""
+    if not message.from_user or message.from_user.id not in awaiting_activation_key:
+        return  # Пропускаем, если пользователь не в режиме ожидания ключа
+    
+    user = message.from_user
+    key = message.text.strip().upper()
+    
+    # Проверяем формат ключа
+    import re
+    if not re.match(r'^KEY-[A-Z0-9]{4}-[A-Z0-9]{4}$', key):
+        await message.answer(
+            "❌ Неверный формат ключа.\n\n"
+            "Ключ должен быть в формате: <code>KEY-XXXX-XXXX</code>\n\n"
+            "Попробуйте ещё раз или отправьте /cancel для отмены."
+        )
+        return
+    
+    # Удаляем из ожидания
+    awaiting_activation_key.discard(user.id)
+    
+    # Пытаемся активировать
+    result = db.activate_twink_with_key(user.id, key)
+    
+    if not result['success']:
+        error_messages = {
+            'invalid_key': '❌ Ключ недействителен или срок доступа основного аккаунта истёк.',
+            'self_activation': '❌ Нельзя использовать свой же ключ.',
+        }
+        error_msg = error_messages.get(result['error'], f"❌ {result.get('message', 'Ошибка активации')}")
+        
+        await message.answer(
+            f"{error_msg}\n\n"
+            "Проверьте ключ и попробуйте снова через кнопку «🔑 Активировать ключ».",
+            reply_markup=main_menu_keyboard(user.id)
+        )
+        return
+    
+    # Успешная активация
+    owner_id = result['owner_user_id']
+    old_twink_id = result.get('old_twink_id')
+    
+    # Получаем информацию о сроке
+    expires = result.get('expires_at')
+    if expires:
         seconds = max(0, int((expires - datetime.now(expires.tzinfo or timezone.utc)).total_seconds()))
         days, rem = divmod(seconds, 86400)
         hours, rem = divmod(rem, 3600)
         minutes = rem // 60
         remaining = (f"{days} дн. " if days else "") + f"{hours} ч. {minutes} мин."
-    text = f"<b>Подписка</b>\n\nОсталось: <b>{remaining}</b>"
-    if owner_uid != uid:
-        text += "\nПодписка основного аккаунта используется совместно."
-    await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В главное меню", callback_data="back_to_start")]]))
-    await call.answer()
-
-
-@dp.callback_query(F.data == "reset_my_accounts")
-async def reset_my_accounts_callback(call: CallbackQuery):
-    if not call.from_user:
-        await call.answer("Не удалось определить пользователя", show_alert=True)
-        return
-    
-    user = call.from_user
-    db.register_user(user.id, user.username, user.first_name, user.last_name)
-    
-    # Сбрасываем все привязки пользователя
-    deleted = db.reset_all_links(user.id)
-    
-    if deleted > 0:
-        await call.answer(f"✅ Сброшено привязок: {deleted}", show_alert=True)
-        await call.message.answer(
-            f"✅ <b>Привязки сброшены</b>\n\n"
-            f"Удалено связей: <b>{deleted}</b>\n\n"
-            "Теперь вы можете заново привязать твинки через кнопку «👥 Привязать твинки».",
-            reply_markup=main_menu_keyboard(user.id)
-        )
     else:
-        await call.answer("У вас не было привязанных аккаунтов", show_alert=True)
+        remaining = "Бессрочно"
     
-    await call.answer()
-
-
-@dp.callback_query(F.data == "activate_access")
-async def activate_access_callback(call: CallbackQuery):
-    if not call.from_user:
-        await call.answer("Не удалось определить пользователя", show_alert=True)
-        return
-    user = call.from_user
-    db.register_user(user.id, user.username, user.first_name, user.last_name)
-    if db.get_access_owner(user.id) != user.id or not db.has_paid_primary_access(user.id):
-        await call.answer("Привязывать твинки может только основной аккаунт с купленным доступом.", show_alert=True)
-        return
-    awaiting_access_transfer.add(user.id)
-    await call.message.answer(
-        "👥 <b>Привязка твинка</b>\n\n"
-        "Отправь Telegram ID или @username дополнительного аккаунта.\n"
-        "Твинк получит доступ до той же даты окончания, что и основной аккаунт.\n\n"
-        "Отмена: /cancel."
+    await message.answer(
+        "✅ <b>Ключ активирован!</b>\n\n"
+        f"Вы успешно привязаны к основному аккаунту.\n"
+        f"Осталось доступа: <b>{remaining}</b>\n\n"
+        "Теперь вы можете создавать оферы.",
+        reply_markup=main_menu_keyboard(user.id)
     )
-    await call.answer()
-
-
-@dp.callback_query(F.data.startswith("access_link_yes:"))
-async def access_link_yes_callback(call: CallbackQuery):
-    _, expected_owner, child = call.data.split(":", 2)
-    owner_uid = int(expected_owner)
-    child_uid = int(child)
-    if call.from_user.id != owner_uid:
-        await call.answer("Этот запрос предназначен другому аккаунту", show_alert=True)
-        return
-    if db.get_access_owner(owner_uid) != owner_uid or not db.has_paid_primary_access(owner_uid):
-        await call.answer("Привязку может подтвердить только аккаунт с собственной покупкой.", show_alert=True)
-        return
-    if not db.link_paid_secondary_account(child_uid, owner_uid):
-        await call.answer("Не удалось привязать: аккаунт уже привязан или имеет собственную активную покупку.", show_alert=True)
-        return
-    entered_username = pending_access_usernames.pop(child_uid, None)
-    expires = db.get_access_expiry(owner_uid)
-    expires_text = expires.strftime("%d.%m.%Y %H:%M UTC") if expires else "бессрочно"
     
-    try:
-        await bot.send_message(child_uid, "Привязка подтверждена. Вы используете подписку основного аккаунта и тот же срок её окончания.", reply_markup=main_menu_keyboard(child_uid))
-    except Exception:
-        log.exception("Could not notify linked account %s", child_uid)
+    # Уведомляем старый твинк (если был)
+    if old_twink_id:
+        try:
+            await bot.send_message(
+                old_twink_id,
+                "⚠️ <b>Вы были отвязаны</b>\n\n"
+                "Владелец основного аккаунта привязал другой твинк.\n"
+                "Ваш доступ больше не действует.",
+                reply_markup=main_menu_keyboard(old_twink_id)
+            )
+        except Exception:
+            log.exception("Could not notify old twink %s", old_twink_id)
     
-    # Уведомление админу о привязке твинка
+    # Уведомляем админа
     try:
+        owner_user = db.get_user(owner_id)
+        owner_name = owner_user.get('username') or owner_user.get('first_name') or f"ID {owner_id}" if owner_user else f"ID {owner_id}"
+        
         await bot.send_message(
             cfg.owner_id,
-            f"🔗 <b>Привязан твинк</b>\n\n"
-            f"Владелец: @{call.from_user.username or 'без username'} (ID: <code>{owner_uid}</code>)\n"
-            f"Твинк: @{entered_username or 'без username'} (ID: <code>{child_uid}</code>)\n"
-            f"Окончание доступа: <b>{expires_text}</b>"
+            f"🔗 <b>Привязан новый твинк</b>\n\n"
+            f"Основной: @{owner_name}\n"
+            f"Твинк: @{user.username or 'без username'} (ID: <code>{user.id}</code>)\n"
+            f"Осталось доступа: <b>{remaining}</b>"
         )
     except Exception:
-        log.exception("Could not notify admin about linked access activation")
-    await call.message.edit_reply_markup(reply_markup=None)
-    await call.answer("Аккаунт привязан")
+        log.exception("Could not notify admin about key activation")
 
 
-@dp.callback_query(F.data.startswith("access_link_no:"))
-async def access_link_no_callback(call: CallbackQuery):
-    _, expected_owner, child = call.data.split(":", 2)
-    if call.from_user.id != int(expected_owner):
-        await call.answer("Этот запрос предназначен другому аккаунту", show_alert=True)
-        return
-    child_uid = int(child)
-    await call.message.edit_reply_markup(reply_markup=None)
-    try:
-        await bot.send_message(child_uid, "Владелец основного аккаунта отклонил запрос на привязку.")
-    except Exception:
-        pass
-    await call.answer("Запрос отклонён")
-
+# Старые обработчики (закомментированы, оставлены для истории)
+# @dp.callback_query(F.data == "reset_my_accounts")
+# @dp.callback_query(F.data == "activate_access")
+# @dp.callback_query(F.data.startswith("access_link_yes:"))
+# @dp.callback_query(F.data.startswith("access_link_no:"))
 
 @dp.callback_query(F.data == "my_referrals")
 async def my_referrals_callback(call: CallbackQuery):

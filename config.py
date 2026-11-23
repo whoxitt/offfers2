@@ -18,11 +18,11 @@ class Config:
     business_debug: bool
     offer_access_mode: str
     offer_always_allowed_ids: Tuple[int, ...]
-    require_subscription: bool = False
+    require_subscription: bool = True
     channel_id: str = ""
     channel_url: str = ""
     support_url: str = "https://t.me/witensea"
-    users_chat_url: str = ""
+    users_chat_url: str = "https://t.me/"
     offer_expire_hours: float = 24.0
     bot_username: str = ""
     # Настройки оплаты
@@ -66,11 +66,11 @@ def load_config() -> Config:
         business_debug=_bool(os.getenv("BUSINESS_DEBUG", "1"), True),
         offer_access_mode=mode,
         offer_always_allowed_ids=tuple(ids),
-        require_subscription=_bool(os.getenv("REQUIRE_SUBSCRIPTION", "false"), False),
+        require_subscription=_bool(os.getenv("REQUIRE_SUBSCRIPTION", "true"), True),
         channel_id=os.getenv("CHANNEL_ID", "").strip(),
         channel_url=os.getenv("CHANNEL_URL", "").strip(),
         support_url=os.getenv("SUPPORT_URL", "https://t.me/witensea").strip(),
-        users_chat_url=os.getenv("USERS_CHAT_URL", "").strip(),
+        users_chat_url=os.getenv("USERS_CHAT_URL", "https://t.me/").strip(),
         offer_expire_hours=float(os.getenv("OFFER_EXPIRE_HOURS", "24")),
         bot_username=os.getenv("BOT_USERNAME", "").strip().lstrip("@"),
         payment_price=float(os.getenv("PAYMENT_PRICE", "150")),

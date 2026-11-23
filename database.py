@@ -120,7 +120,20 @@ class Database:
             target_user_id BIGINT, details TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
         "CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit(created_at DESC)",
         # Add bypass_mode column for peer_flood workaround
-        "ALTER TABLE gift_offers ADD COLUMN IF NOT EXISTS bypass_mode INTEGER NOT NULL DEFAULT 0"
+        "ALTER TABLE gift_offers ADD COLUMN IF NOT EXISTS bypass_mode INTEGER NOT NULL DEFAULT 0",
+        # Activation Keys - система ключей для твинков
+        """CREATE TABLE IF NOT EXISTS access_grants (
+            user_id BIGINT PRIMARY KEY,
+            activation_key TEXT UNIQUE,
+            linked_to_user_id BIGINT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""",
+        "ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS activation_key TEXT UNIQUE",
+        "ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS linked_to_user_id BIGINT",
+        "ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        "ALTER TABLE access_grants ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()",
+        "CREATE INDEX IF NOT EXISTS idx_access_grants_activation_key ON access_grants(activation_key)",
+        "CREATE INDEX IF NOT EXISTS idx_access_grants_linked_to ON access_grants(linked_to_user_id)"
         ]
         with self.connect() as con:
             with con.cursor() as cur:
@@ -246,6 +259,14 @@ class Database:
             
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
+            
+            # Генерируем ключ активации для нового основного аккаунта
+            key = self.generate_activation_key()
+            cur.execute("""
+                INSERT INTO access_grants(user_id, activation_key, linked_to_user_id)
+                VALUES(%s, %s, NULL)
+                ON CONFLICT(user_id) DO UPDATE SET activation_key=EXCLUDED.activation_key, linked_to_user_id=NULL
+            """, (user_id, key))
 
     def revoke_access(self, user_id: int):
         """Remove access from user completely."""
@@ -411,9 +432,36 @@ class Database:
     def has_access(self, user_id: int, owner_id: int, mode: str) -> bool:
         if user_id == owner_id or mode == "all": return True
         if self.is_blocked(user_id): return False
-        access_owner = self.get_access_owner(user_id)
-        if self.is_blocked(access_owner): return False
+        
+        # Проверяем новую систему с ключами (твинк)
         with self.connect() as con, con.cursor() as cur:
+            # Проверяем, является ли пользователь твинком
+            cur.execute("""
+                SELECT ag.linked_to_user_id, au.expires_at
+                FROM access_grants ag
+                LEFT JOIN offer_access_users au ON au.user_id = ag.linked_to_user_id
+                WHERE ag.user_id=%s AND ag.linked_to_user_id IS NOT NULL
+            """, (user_id,))
+            twink_row = cur.fetchone()
+            
+            if twink_row:
+                # Это твинк - проверяем доступ основного аккаунта
+                linked_to = int(twink_row['linked_to_user_id'])
+                expires_at = twink_row['expires_at']
+                
+                if self.is_blocked(linked_to):
+                    return False
+                
+                # Если срок не истёк или безлимитный - есть доступ
+                if expires_at is None:
+                    return True
+                
+                from datetime import datetime, timezone
+                return expires_at > datetime.now(timezone.utc)
+            
+            # Старая система - проверяем через offer_access_links
+            access_owner = self.get_access_owner(user_id)
+            if self.is_blocked(access_owner): return False
             cur.execute("SELECT 1 FROM offer_access_users WHERE user_id=%s AND (expires_at IS NULL OR expires_at>NOW())", (access_owner,))
             return cur.fetchone() is not None
 
@@ -630,6 +678,15 @@ class Database:
                 reminder_sent_at=NULL,expiry_admin_reminder_sent_at=NULL,expired_notified_at=NULL,source='payment'""", (user_id,duration_hours,duration_hours,duration_hours))
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
+            
+            # Генерируем ключ активации для нового основного аккаунта
+            key = self.generate_activation_key()
+            cur.execute("""
+                INSERT INTO access_grants(user_id, activation_key, linked_to_user_id)
+                VALUES(%s, %s, NULL)
+                ON CONFLICT(user_id) DO UPDATE SET activation_key=EXCLUDED.activation_key, linked_to_user_id=NULL
+            """, (user_id, key))
+            
             return True
 
     def confirm_payment_access_and_reward_referrer(self, payment_id: int, user_id: int, duration_hours: float = 48.0, reward_hours: float = 24.0):
@@ -651,6 +708,15 @@ class Database:
                 reminder_sent_at=NULL,expiry_admin_reminder_sent_at=NULL,expired_notified_at=NULL,source='payment'""", (user_id, duration_hours, duration_hours, duration_hours))
             cur.execute("DELETE FROM offer_blocked_users WHERE user_id=%s", (user_id,))
             cur.execute("UPDATE offer_business_connections SET is_blocked=FALSE,updated_at=NOW() WHERE user_id=%s", (user_id,))
+            
+            # Генерируем ключ активации для нового основного аккаунта
+            key = self.generate_activation_key()
+            cur.execute("""
+                INSERT INTO access_grants(user_id, activation_key, linked_to_user_id)
+                VALUES(%s, %s, NULL)
+                ON CONFLICT(user_id) DO UPDATE SET activation_key=EXCLUDED.activation_key, linked_to_user_id=NULL
+            """, (user_id, key))
+            
             # Реферальная награда положена только за покупку ровно за 5 TON.
             if abs(float(paid_row["amount"]) - 5.0) > 0.000001:
                 return None
@@ -855,3 +921,228 @@ class Database:
             cur.execute("SELECT COUNT(*) AS pending FROM payments WHERE status='pending'")
             pending = int(cur.fetchone()['pending'] or 0)
             return {'users':users,'offers':offers,'payments':payments,'pending_payments':pending}
+
+    # ============================================================
+    # ACTIVATION KEYS - Система ключей для твинков
+    # ============================================================
+
+    def generate_activation_key(self) -> str:
+        """Генерирует уникальный ключ активации формата KEY-XXXX-XXXX"""
+        import secrets
+        import string
+        chars = string.ascii_uppercase + string.digits
+        
+        # Пытаемся до 10 раз сгенерировать уникальный ключ
+        for _ in range(10):
+            part1 = ''.join(secrets.choice(chars) for _ in range(4))
+            part2 = ''.join(secrets.choice(chars) for _ in range(4))
+            key = f"KEY-{part1}-{part2}"
+            
+            # Проверяем уникальность
+            with self.connect() as con, con.cursor() as cur:
+                cur.execute("SELECT 1 FROM access_grants WHERE activation_key=%s", (key,))
+                if cur.fetchone() is None:
+                    return key
+        
+        # Если не удалось за 10 попыток, добавляем timestamp
+        import time
+        return f"KEY-{int(time.time()) % 10000:04d}-{secrets.randbelow(10000):04d}"
+
+    def create_activation_key_for_user(self, user_id: int) -> str:
+        """Создаёт или возвращает существующий ключ активации для пользователя"""
+        with self.connect() as con, con.cursor() as cur:
+            # Проверяем есть ли уже ключ
+            cur.execute("""
+                SELECT activation_key FROM access_grants 
+                WHERE user_id=%s AND linked_to_user_id IS NULL
+            """, (user_id,))
+            row = cur.fetchone()
+            
+            if row and row['activation_key']:
+                return row['activation_key']
+            
+            # Генерируем новый ключ
+            key = self.generate_activation_key()
+            
+            # Обновляем или создаём запись
+            cur.execute("""
+                INSERT INTO access_grants(user_id, activation_key)
+                VALUES(%s, %s)
+                ON CONFLICT(user_id) DO UPDATE SET activation_key=EXCLUDED.activation_key
+            """, (user_id, key))
+            
+            return key
+
+    def get_activation_key(self, user_id: int) -> Optional[str]:
+        """Получает ключ активации пользователя (только для основных аккаунтов)"""
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""
+                SELECT activation_key FROM access_grants 
+                WHERE user_id=%s AND linked_to_user_id IS NULL
+            """, (user_id,))
+            row = cur.fetchone()
+            return row['activation_key'] if row else None
+
+    def get_linked_twink(self, owner_user_id: int) -> Optional[int]:
+        """Получает ID привязанного твинка для основного аккаунта"""
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""
+                SELECT user_id FROM access_grants 
+                WHERE linked_to_user_id=%s
+                LIMIT 1
+            """, (owner_user_id,))
+            row = cur.fetchone()
+            return int(row['user_id']) if row else None
+
+    def validate_activation_key(self, key: str) -> Optional[Dict[str, Any]]:
+        """Проверяет ключ активации и возвращает информацию о владельце"""
+        with self.connect() as con, con.cursor() as cur:
+            # Находим основной аккаунт по ключу
+            cur.execute("""
+                SELECT ag.user_id, ag.activation_key, ag.linked_to_user_id,
+                       au.expires_at
+                FROM access_grants ag
+                LEFT JOIN offer_access_users au ON au.user_id = ag.user_id
+                WHERE ag.activation_key=%s AND ag.linked_to_user_id IS NULL
+            """, (key,))
+            row = cur.fetchone()
+            
+            if not row:
+                return None
+            
+            # Проверяем, есть ли у владельца активный доступ
+            owner_id = int(row['user_id'])
+            expires_at = row['expires_at']
+            
+            # Если срок истёк, ключ невалидный
+            if expires_at:
+                from datetime import datetime, timezone
+                if expires_at < datetime.now(timezone.utc):
+                    return None
+            
+            # Проверяем, есть ли уже привязанный твинк
+            cur.execute("""
+                SELECT user_id FROM access_grants 
+                WHERE linked_to_user_id=%s
+            """, (owner_id,))
+            linked_row = cur.fetchone()
+            
+            return {
+                'owner_user_id': owner_id,
+                'activation_key': row['activation_key'],
+                'expires_at': expires_at,
+                'linked_twink_id': int(linked_row['user_id']) if linked_row else None
+            }
+
+    def activate_twink_with_key(self, twink_user_id: int, activation_key: str) -> Dict[str, Any]:
+        """Активирует твинк по ключу. Возвращает результат операции."""
+        # Валидируем ключ
+        key_info = self.validate_activation_key(activation_key)
+        
+        if not key_info:
+            return {
+                'success': False,
+                'error': 'invalid_key',
+                'message': 'Ключ недействителен или срок доступа истёк'
+            }
+        
+        owner_id = key_info['owner_user_id']
+        
+        # Нельзя активировать ключ на самого себя
+        if twink_user_id == owner_id:
+            return {
+                'success': False,
+                'error': 'self_activation',
+                'message': 'Нельзя использовать свой же ключ'
+            }
+        
+        with self.connect() as con, con.cursor() as cur:
+            # Отключаем старый твинк (если был)
+            old_twink_id = key_info.get('linked_twink_id')
+            if old_twink_id:
+                # Удаляем запись старого твинка
+                cur.execute("""
+                    DELETE FROM access_grants WHERE user_id=%s
+                """, (old_twink_id,))
+                
+                # Удаляем связь из старой системы (на всякий случай)
+                cur.execute("""
+                    DELETE FROM offer_access_links WHERE child_user_id=%s
+                """, (old_twink_id,))
+            
+            # Удаляем твинк если он был основным аккаунтом или привязан к кому-то другому
+            cur.execute("""
+                DELETE FROM access_grants WHERE user_id=%s
+            """, (twink_user_id,))
+            
+            # Удаляем из старой системы привязки
+            cur.execute("""
+                DELETE FROM offer_access_links WHERE child_user_id=%s OR owner_user_id=%s
+            """, (twink_user_id, twink_user_id))
+            
+            # Создаём новую запись для твинка
+            cur.execute("""
+                INSERT INTO access_grants(user_id, linked_to_user_id, activation_key)
+                VALUES(%s, %s, NULL)
+            """, (twink_user_id, owner_id))
+            
+            # Разблокируем твинка
+            cur.execute("""
+                DELETE FROM offer_blocked_users WHERE user_id=%s
+            """, (twink_user_id,))
+            
+            cur.execute("""
+                UPDATE offer_business_connections 
+                SET is_blocked=FALSE, updated_at=NOW() 
+                WHERE user_id=%s
+            """, (twink_user_id,))
+            
+            return {
+                'success': True,
+                'owner_user_id': owner_id,
+                'twink_user_id': twink_user_id,
+                'old_twink_id': old_twink_id,
+                'expires_at': key_info.get('expires_at')
+            }
+
+    def deactivate_twink(self, twink_user_id: int) -> bool:
+        """Отвязывает твинк от основного аккаунта"""
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""
+                DELETE FROM access_grants WHERE user_id=%s AND linked_to_user_id IS NOT NULL
+            """, (twink_user_id,))
+            
+            # Удаляем из старой системы
+            cur.execute("""
+                DELETE FROM offer_access_links WHERE child_user_id=%s
+            """, (twink_user_id,))
+            
+            return cur.rowcount > 0
+
+    def get_twink_info(self, twink_user_id: int) -> Optional[Dict[str, Any]]:
+        """Получает информацию о твинке (к кому привязан)"""
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""
+                SELECT ag.user_id, ag.linked_to_user_id,
+                       owner_ag.activation_key,
+                       au.expires_at,
+                       u.username, u.first_name
+                FROM access_grants ag
+                LEFT JOIN access_grants owner_ag ON owner_ag.user_id = ag.linked_to_user_id
+                LEFT JOIN offer_access_users au ON au.user_id = ag.linked_to_user_id
+                LEFT JOIN bot_users u ON u.user_id = ag.linked_to_user_id
+                WHERE ag.user_id=%s AND ag.linked_to_user_id IS NOT NULL
+            """, (twink_user_id,))
+            row = cur.fetchone()
+            
+            if not row:
+                return None
+            
+            return {
+                'twink_user_id': int(row['user_id']),
+                'owner_user_id': int(row['linked_to_user_id']),
+                'activation_key': row['activation_key'],
+                'expires_at': row['expires_at'],
+                'owner_username': row['username'],
+                'owner_first_name': row['first_name']
+            }
