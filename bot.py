@@ -80,10 +80,6 @@ def get_access_duration_hours() -> float:
         return cfg.access_duration_hours
 
 
-def is_admin(user_id: int | None) -> bool:
-    return bool(user_id and db.is_admin(int(user_id), cfg.owner_id))
-
-
 def display_name(user) -> str:
     return " ".join(x for x in [getattr(user, 'first_name', None), getattr(user, 'last_name', None)] if x) or "Пользователь"
 
@@ -214,7 +210,6 @@ def admin_keyboard():
         [InlineKeyboardButton(text="Фото пранка", callback_data="adm:prankphoto:0"),
          InlineKeyboardButton(text="Убрать фото", callback_data="adm:prankphotoremove:0")],
         [InlineKeyboardButton(text=f"Только владелец: {owner_only}", callback_data="adm:toggle_owner_only:0")],
-        [InlineKeyboardButton(text="📖 Инструкция админки", callback_data="adm:help:0")],
         [InlineKeyboardButton(text="Обновить", callback_data="adm:home:0")],
     ])
 
@@ -1320,21 +1315,21 @@ async def on_business_message(message: Message):
 
 @dp.message()
 async def on_message(message: Message):
-    if message.from_user and is_admin(message.from_user.id) and message.chat.type == "private" and message.from_user.id in awaiting_admin_search:
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_admin_search:
         raw = (message.text or "").strip()
         if raw.lower() == "/cancel":
-            awaiting_admin_search.discard(message.from_user.id)
+            awaiting_admin_search.discard(cfg.owner_id)
             await message.answer("Поиск отменён.", reply_markup=admin_keyboard())
             return
-        admin_user_queries[message.from_user.id] = raw
-        awaiting_admin_search.discard(message.from_user.id)
-        text, markup = admin_users_view(0, message.from_user.id)
+        admin_user_queries[cfg.owner_id] = raw
+        awaiting_admin_search.discard(cfg.owner_id)
+        text, markup = admin_users_view(0)
         await message.answer(text, reply_markup=markup)
         return
-    if message.from_user and is_admin(message.from_user.id) and message.chat.type == "private" and message.from_user.id in awaiting_access_duration:
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_access_duration:
         raw = (message.text or "").strip().replace(",", ".")
         if raw.lower() == "/cancel":
-            awaiting_access_duration.discard(message.from_user.id)
+            awaiting_access_duration.discard(cfg.owner_id)
             await message.answer("Изменение срока доступа отменено.", reply_markup=admin_keyboard())
             return
         try:
@@ -1345,14 +1340,14 @@ async def on_message(message: Message):
             await message.answer("Введите число от 1 до 8760 часов. Например: 48. Для отмены: /cancel")
             return
         db.set_setting("access_duration_hours", str(hours))
-        db.log_admin_action(message.from_user.id, "change_access_duration", None, f"hours={hours:g}")
-        awaiting_access_duration.discard(message.from_user.id)
+        db.log_admin_action(cfg.owner_id, "change_access_duration", None, f"hours={hours:g}")
+        awaiting_access_duration.discard(cfg.owner_id)
         await message.answer(f"Срок доступа изменён: {hours:g} часов.", reply_markup=admin_keyboard())
         return
-    if message.from_user and is_admin(message.from_user.id) and message.chat.type == "private" and message.from_user.id in awaiting_referral_hours:
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_referral_hours:
         raw = (message.text or "").strip().replace(",", ".")
         if raw.lower() == "/cancel":
-            awaiting_referral_hours.discard(message.from_user.id)
+            awaiting_referral_hours.discard(cfg.owner_id)
             await message.answer("Изменение бонуса отменено.", reply_markup=admin_keyboard())
             return
         try:
@@ -1363,14 +1358,14 @@ async def on_message(message: Message):
             await message.answer("Введите число от 1 до 8760. Например: 24. Для отмены: /cancel")
             return
         db.set_setting("referral_reward_hours", str(hours))
-        db.log_admin_action(message.from_user.id, "change_referral_reward_hours", None, f"hours={hours:g}")
-        awaiting_referral_hours.discard(message.from_user.id)
+        db.log_admin_action(cfg.owner_id, "change_referral_reward_hours", None, f"hours={hours:g}")
+        awaiting_referral_hours.discard(cfg.owner_id)
         await message.answer(f"Реферальный бонус изменён: {hours:g} часов.", reply_markup=admin_keyboard())
         return
-    if message.from_user and is_admin(message.from_user.id) and message.chat.type == "private" and message.from_user.id in awaiting_offer_command:
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_offer_command:
         raw = (message.text or "").strip()
         if raw.lower() == "/cancel":
-            awaiting_offer_command.discard(message.from_user.id)
+            awaiting_offer_command.discard(cfg.owner_id)
             await message.answer("Изменение команды отменено.", reply_markup=admin_keyboard())
             return
         command = raw.lstrip(".")
@@ -1381,8 +1376,8 @@ async def on_message(message: Message):
             await message.answer("Это имя зарезервировано. Выберите другое. Например: <code>ху</code>.")
             return
         db.set_setting("offer_command", command)
-        db.log_admin_action(message.from_user.id, "change_offer_command", None, f"command={command}")
-        awaiting_offer_command.discard(message.from_user.id)
+        db.log_admin_action(cfg.owner_id, "change_offer_command", None, f"command={command}")
+        awaiting_offer_command.discard(cfg.owner_id)
         
         # Рассылка всем пользователям о новой команде
         broadcast_text = f"📢 <b>Новая команда для отправки офера</b>\n\n<code>{html.escape(command)}</code>"
@@ -1413,10 +1408,10 @@ async def on_message(message: Message):
             reply_markup=admin_keyboard(),
         )
         return
-    if message.from_user and is_admin(message.from_user.id) and message.chat.type == "private" and message.from_user.id in awaiting_access_grant:
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_access_grant:
         raw = (message.text or "").strip()
         if raw.lower() == "/cancel":
-            awaiting_access_grant.discard(message.from_user.id)
+            awaiting_access_grant.discard(cfg.owner_id)
             await message.answer("Выдача временного доступа отменена.", reply_markup=admin_keyboard())
             return
         parts = raw.split()
@@ -1440,18 +1435,18 @@ async def on_message(message: Message):
                 return
             uid = int(found["user_id"])
         db.grant_timed_access(uid, hours, "admin")
-        db.log_admin_action(message.from_user.id, "grant_timed_access", uid, f"hours={hours:g}")
-        awaiting_access_grant.discard(message.from_user.id)
+        db.log_admin_action(cfg.owner_id, "grant_timed_access", uid, f"hours={hours:g}")
+        awaiting_access_grant.discard(cfg.owner_id)
         try:
             await bot.send_message(uid, f"Вам выдан доступ к OfferBot на {hours:g} часов.")
         except Exception:
             pass
         await message.answer(f"Временный доступ выдан пользователю <code>{uid}</code> на <b>{hours:g} часов</b>.", reply_markup=admin_keyboard())
         return
-    if message.from_user and is_admin(message.from_user.id) and message.chat.type == "private" and message.from_user.id in awaiting_payment_price:
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_payment_price:
         raw = (message.text or "").strip().replace(",", ".")
         if raw.lower() == "/cancel":
-            awaiting_payment_price.discard(message.from_user.id)
+            awaiting_payment_price.discard(cfg.owner_id)
             await message.answer("Изменение цены отменено.", reply_markup=admin_keyboard())
             return
         try:
@@ -1462,47 +1457,47 @@ async def on_message(message: Message):
             await message.answer("Введите положительную сумму числом, например 5 или 7.5. Для отмены: /cancel")
             return
         db.set_setting("payment_price", str(price))
-        db.log_admin_action(message.from_user.id, "change_payment_price", None, f"price={price:g} TON")
-        awaiting_payment_price.discard(message.from_user.id)
+        db.log_admin_action(cfg.owner_id, "change_payment_price", None, f"price={price:g} TON")
+        awaiting_payment_price.discard(cfg.owner_id)
         await message.answer(f"Цена доступа изменена: <b>{price:g} TON</b>.", reply_markup=admin_keyboard())
         return
-    if message.from_user and is_admin(message.from_user.id) and message.chat.type == "private" and message.from_user.id in awaiting_banner:
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_banner:
         if (message.text or "").strip().lower() == "/cancel":
-            awaiting_banner.discard(message.from_user.id)
+            awaiting_banner.discard(cfg.owner_id)
             await message.answer("Изменение баннера отменено.")
             return
         if not message.photo:
             await message.answer("Отправьте фотографию как фото, не как файл. Для отмены: /cancel")
             return
         db.set_setting("start_banner_file_id", message.photo[-1].file_id)
-        awaiting_banner.discard(message.from_user.id)
-        log.info("START_BANNER_UPDATED admin_id=%s file_id_saved=true", message.from_user.id)
+        awaiting_banner.discard(cfg.owner_id)
+        log.info("START_BANNER_UPDATED admin_id=%s file_id_saved=true", cfg.owner_id)
         await message.answer("Баннер обновлён. Он будет использоваться в следующих сообщениях /start.", reply_markup=admin_keyboard())
         return
     
-    if message.from_user and is_admin(message.from_user.id) and message.chat.type == "private" and message.from_user.id in awaiting_prank_photo:
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_prank_photo:
         if (message.text or "").strip().lower() == "/cancel":
-            awaiting_prank_photo.discard(message.from_user.id)
+            awaiting_prank_photo.discard(cfg.owner_id)
             await message.answer("Изменение фото пранка отменено.")
             return
         if not message.photo:
             await message.answer("Отправьте фотографию как фото, не как файл. Для отмены: /cancel")
             return
         db.set_prank_photo(message.photo[-1].file_id)
-        awaiting_prank_photo.discard(message.from_user.id)
-        log.info("PRANK_PHOTO_UPDATED admin_id=%s file_id_saved=true", message.from_user.id)
+        awaiting_prank_photo.discard(cfg.owner_id)
+        log.info("PRANK_PHOTO_UPDATED admin_id=%s file_id_saved=true", cfg.owner_id)
         await message.answer("Фото пранка обновлено. Оно будет использоваться для всех пранк-оферов.", reply_markup=admin_keyboard())
         return
     
-    if message.from_user and is_admin(message.from_user.id) and message.chat.type == "private" and message.from_user.id in awaiting_broadcast:
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_broadcast:
         if (message.text or "").strip().lower() == "/cancel":
-            awaiting_broadcast.discard(message.from_user.id)
+            awaiting_broadcast.discard(cfg.owner_id)
             await message.answer("Рассылка отменена.")
             return
         if (message.text or "").strip().lower() == "/broadcast":
             await message.answer("Отправь текст, фото, видео или GIF для рассылки. Для отмены: /cancel")
             return
-        awaiting_broadcast.discard(message.from_user.id)
+        awaiting_broadcast.discard(cfg.owner_id)
         recipients = db.list_broadcast_users()
         sent = failed = 0
         status = await message.answer(f"Начинаю рассылку для {len(recipients)} пользователей…")
@@ -1680,45 +1675,17 @@ async def handle_text(message: Message, is_business: bool):
     if first_token == active_command:
         await process_offer(message, message.business_connection_id if is_business else None)
         return
-    if low.startswith("/adminadd ") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
-        parts = text.split()
-        if len(parts) != 2 or not parts[1].lstrip("-").isdigit():
-            await message.answer("Формат: /adminadd ID")
-            return
-        target = int(parts[1])
-        if target == cfg.owner_id:
-            await message.answer("Владелец уже имеет все права.")
-        else:
-            added = db.add_admin(target, cfg.owner_id)
-            db.log_admin_action(cfg.owner_id, "add_admin", target)
-            await message.answer(("✅ Админ добавлен: " if added else "ℹ️ Этот пользователь уже администратор: ") + f"<code>{target}</code>")
-        return
-    if low.startswith("/admindel ") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
-        parts = text.split()
-        if len(parts) != 2 or not parts[1].lstrip("-").isdigit():
-            await message.answer("Формат: /admindel ID")
-            return
-        target = int(parts[1])
-        removed = db.remove_admin(target)
-        db.log_admin_action(cfg.owner_id, "remove_admin", target)
-        await message.answer(("✅ Админ удалён: " if removed else "ℹ️ Администратор не найден: ") + f"<code>{target}</code>")
-        return
-    if low == "/admins" and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
-        rows = db.list_admins()
-        body = "\\n".join(f"• <code>{r['user_id']}</code>" for r in rows) or "Дополнительных администраторов нет."
-        await message.answer("<b>Администраторы</b>\\n" + body)
-        return
     if low.startswith("/admin") or low.startswith("/админ"):
         await admin_command(message)
         return
-    if low == "/broadcast" and message.from_user and is_admin(message.from_user.id) and not is_business:
-        awaiting_broadcast.add(message.from_user.id)
+    if low == "/broadcast" and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
+        awaiting_broadcast.add(cfg.owner_id)
         await reply_message(message, "<b>Рассылка</b>\nОтправьте текст, фото, видео или GIF. Для отмены: /cancel")
         return
     if low.startswith("/transfer ") or low.startswith("/передача "):
         await set_transfer(message, text.split(maxsplit=1)[1].strip())
         return
-    if low.startswith("/reply ") and message.from_user and is_admin(message.from_user.id) and not is_business:
+    if low.startswith("/reply ") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         parts = text.split(maxsplit=2)
         if len(parts) < 3 or not parts[1].isdigit():
             await reply_message(message, "Формат: /reply USER_ID текст ответа")
@@ -1729,7 +1696,7 @@ async def handle_text(message: Message, is_business: bool):
         except Exception as e:
             await reply_message(message, f"❌ Не удалось отправить ответ: {e}")
         return
-    if low.startswith("/сброс") and message.from_user and is_admin(message.from_user.id) and not is_business:
+    if low.startswith("/сброс") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         parts = text.split(maxsplit=1)
         if len(parts) != 2:
             await reply_message(message, "Формат: <code>/сброс @username</code> или <code>/сброс USER_ID</code>\n\nСбрасывает все привязки аккаунта (делает его основным).\n\nПримеры:\n• <code>/сброс @username</code>\n• <code>/сброс 123456789</code>")
@@ -1755,9 +1722,9 @@ async def handle_text(message: Message, is_business: bool):
         else:
             await reply_message(message, f"ℹ️ У пользователя <code>{uid}</code> не было привязок.")
         
-        db.log_admin_action(message.from_user.id, "reset_links", uid, f"deleted={deleted}")
+        db.log_admin_action(cfg.owner_id, "reset_links", uid, f"deleted={deleted}")
         return
-    if low.startswith("/поиск") and message.from_user and is_admin(message.from_user.id) and not is_business:
+    if low.startswith("/поиск") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         parts = text.split(maxsplit=1)
         if len(parts) != 2:
             await reply_message(message, "Формат: <code>/поиск @username</code> или <code>/поиск USER_ID</code>\n\nПримеры:\n• <code>/поиск @username</code>\n• <code>/поиск 123456789</code>")
@@ -1797,7 +1764,7 @@ async def handle_text(message: Message, is_business: bool):
         return
     
     # Команда /доступдел - удаление доступа (ВАЖНО: проверяем ДО /доступ!)
-    if low.startswith("/доступдел") and message.from_user and is_admin(message.from_user.id) and not is_business:
+    if low.startswith("/доступдел") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         log.info("REVOKE_ACCESS_COMMAND: Received from %s, text: %s", message.from_user.id, text)
         parts = text.split()
         if len(parts) != 2:
@@ -1821,7 +1788,7 @@ async def handle_text(message: Message, is_business: bool):
         
         # Удаляем доступ
         db.revoke_access(uid)
-        db.log_admin_action(message.from_user.id, "revoke_access", uid, "access_removed")
+        db.log_admin_action(cfg.owner_id, "revoke_access", uid, "access_removed")
         log.info("REVOKE_ACCESS_COMMAND: access revoked from %s", uid)
         
         try:
@@ -1835,7 +1802,7 @@ async def handle_text(message: Message, is_business: bool):
         return
     
     # Команда /доступ - выдача доступа
-    if low.startswith("/доступ") and message.from_user and is_admin(message.from_user.id) and not is_business:
+    if low.startswith("/доступ") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         log.info("ACCESS_COMMAND: Received from %s, text: %s", message.from_user.id, text)
         parts = text.split()
         if len(parts) != 3:
@@ -1866,7 +1833,7 @@ async def handle_text(message: Message, is_business: bool):
         # Используем grant_paid_access чтобы можно было привязывать твинки
         db.grant_paid_access(uid, hours, "admin_command")
         db.unblock_offer_user(uid)
-        db.log_admin_action(message.from_user.id, "grant_timed_access", uid, f"hours={hours:g}")
+        db.log_admin_action(cfg.owner_id, "grant_timed_access", uid, f"hours={hours:g}")
         log.info("ACCESS_COMMAND: access granted to %s for %s hours", uid, hours)
         
         try:
@@ -1894,7 +1861,7 @@ async def handle_text(message: Message, is_business: bool):
         return
     
     # Команда /сброс олд - удаление всех старых привязок
-    if low.startswith("/сброс олд") and message.from_user and is_admin(message.from_user.id) and not is_business:
+    if low.startswith("/сброс олд") and message.from_user and message.from_user.id == cfg.owner_id and not is_business:
         log.info("CLEANUP_OLD_LINKS: Starting cleanup of orphaned links")
         try:
             deleted_count = db.cleanup_all_orphaned_links()
@@ -1903,17 +1870,17 @@ async def handle_text(message: Message, is_business: bool):
                                          f"Удалены все привязки где:\n"
                                          f"• Владелец больше не имеет активного доступа\n"
                                          f"• Твинк сам получил активный доступ")
-            db.log_admin_action(message.from_user.id, "cleanup_orphaned_links", None, f"deleted={deleted_count}")
+            db.log_admin_action(cfg.owner_id, "cleanup_orphaned_links", None, f"deleted={deleted_count}")
         except Exception as e:
             log.error("CLEANUP_OLD_LINKS: Error: %s", e, exc_info=True)
             await reply_message(message, f"❌ Ошибка при удалении старых привязок: {e}")
         return
     
-    if low.startswith("/block ") and message.from_user and is_admin(message.from_user.id):
+    if low.startswith("/block ") and message.from_user and message.from_user.id == cfg.owner_id:
         await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "Пользователь заблокирован."); return
-    if low.startswith("/unblock ") and message.from_user and is_admin(message.from_user.id):
+    if low.startswith("/unblock ") and message.from_user and message.from_user.id == cfg.owner_id:
         uid=int(text.split(maxsplit=1)[1]); db.unblock_offer_user(uid); await reply_message(message, "Блокировка снята."); return
-    if low.startswith("/setprofile ") and message.from_user and is_admin(message.from_user.id):
+    if low.startswith("/setprofile ") and message.from_user and message.from_user.id == cfg.owner_id:
         parts = text.split(maxsplit=2)
         if len(parts) < 3:
             await reply_message(message, "❌ Формат: <code>/setprofile user_id @username</code>\n\nПример: <code>/setprofile 123456789 @myshop</code>")
@@ -1997,9 +1964,8 @@ def admin_connections_text(offset: int = 0):
     return "\n".join(lines), len(rows) == 8
 
 
-def admin_users_view(offset=0, admin_id=None):
-    admin_id = int(admin_id or cfg.owner_id)
-    query = admin_user_queries.get(admin_id, "")
+def admin_users_view(offset=0):
+    query = admin_user_queries.get(cfg.owner_id, "")
     rows = db.admin_users(query, 8, offset)
     lines = ["<b>Пользователи</b>", f"Поиск: <code>{html.escape(query or 'не задан')}</code>", ""]
     buttons = []
@@ -2058,7 +2024,7 @@ def admin_user_detail_text(row):
 
 @dp.callback_query(F.data.startswith("adm:"))
 async def admin_callback(call: CallbackQuery):
-    if not call.from_user or not is_admin(call.from_user.id):
+    if not call.from_user or call.from_user.id != cfg.owner_id:
         await call.answer("Нет доступа", show_alert=True)
         return
     parts = call.data.split(":", 2)
@@ -2068,44 +2034,6 @@ async def admin_callback(call: CallbackQuery):
         offset = max(0, int(raw_arg))
     except ValueError:
         offset = 0
-
-    if action == "help":
-        help_body = (
-            "<b>📖 Инструкция администратора</b>\\n\\n"
-            "<b>Открытие:</b> /admin — открыть панель. Все кнопки работают в личном чате с ботом.\\n\\n"
-            "<b>Разделы панели</b>\\n"
-            "• <b>Статистика</b> — сводка по оферам, пользователям и платежам.\\n"
-            "• <b>Оферы</b> — просмотр оферов и фильтрация по статусу.\\n"
-            "• <b>Пользователи</b> — поиск по ID/username, карточка пользователя, доступ, блокировка и связанные аккаунты.\\n"
-            "• <b>Оплаты</b> — просмотр платежей и их статусов.\\n"
-            "• <b>Рефералы</b> — статистика приглашений и бонусов.\\n"
-            "• <b>Доступы</b> — управление доступом пользователей.\\n"
-            "• <b>Подключения</b> — список Telegram Business-подключений.\\n"
-            "• <b>Настройки</b> — параметры доступа и работы бота.\\n"
-            "• <b>Рассылка</b> — отправка сообщения пользователям бота.\\n"
-            "• <b>Журналы</b> — последние действия администраторов и системная информация.\\n"
-            "• <b>Баннер</b> — загрузить новое фото для /start; отправьте фото после нажатия.\\n"
-            "• <b>Профиль передачи</b> — изменить профиль/получателя для передачи.\\n"
-            "• <b>Фото пранка</b> — загрузить или убрать фото пранк-оферов.\\n\\n"
-            "<b>Команды</b>\\n"
-            "• <code>/admin</code> — панель администратора.\\n"
-            "• <code>/cancel</code> — отменить текущий ввод.\\n"
-            "• <code>/broadcast</code> — начать рассылку.\\n"
-            "• <code>/reply ID текст</code> — ответить пользователю.\\n"
-            "• <code>/поиск ID</code> — найти пользователя.\\n"
-            "• <code>/доступ ID ЧАСЫ</code> — выдать платный доступ на срок в часах.\\n"
-            "• <code>/доступдел ID</code> — отозвать доступ.\\n"
-            "• <code>/сброс ID</code> — сбросить привязки аккаунтов.\\n"
-            "• <code>/block ID</code> / <code>/unblock ID</code> — блокировка/разблокировка.\\n"
-            "• <code>/setprofile ID имя ссылка</code> — установить профиль.\\n\\n"
-            "<b>Важно:</b> действия с доступом, блокировкой, рассылкой и настройками влияют на всех пользователей. "
-            "Не выдавайте доступ незнакомым ID. Владелец управляет списком админов командами "
-            "<code>/adminadd ID</code>, <code>/admindel ID</code>, <code>/admins</code>. "
-            "Дополнительный администратор не может назначать или удалять других администраторов."
-        )
-        await call.message.edit_text(help_body, reply_markup=admin_back_keyboard())
-        await call.answer()
-        return
 
     if action == "stats":
         days = offset if offset in (7, 30) else 0
@@ -2148,15 +2076,15 @@ async def admin_callback(call: CallbackQuery):
         writer.writerows(rows)
         document = BufferedInputFile(stream.getvalue().encode('utf-8-sig'), filename=f"offerbot_stats_{days or 'all'}.csv")
         await call.answer("Отчёт подготовлен")
-        await bot.send_document(call.from_user.id, document, caption="Отчёт OfferBot")
+        await bot.send_document(cfg.owner_id, document, caption="Отчёт OfferBot")
         return
 
     if action == "users":
-        text, markup = admin_users_view(offset, call.from_user.id)
+        text, markup = admin_users_view(offset)
         await call.message.edit_text(text, reply_markup=markup); await call.answer(); return
 
     if action == "usersearch":
-        awaiting_admin_search.add(call.from_user.id)
+        awaiting_admin_search.add(cfg.owner_id)
         await call.answer()
         await call.message.answer("Отправьте Telegram ID, @username или часть имени. Для отмены: /cancel")
         return
@@ -2176,14 +2104,14 @@ async def admin_callback(call: CallbackQuery):
 
     if action == "usergrant":
         uid = offset
-        awaiting_access_grant.add(call.from_user.id)
+        awaiting_access_grant.add(cfg.owner_id)
         await call.answer()
         await call.message.answer(f"Отправьте срок в часах для пользователя <code>{uid}</code> в формате: <code>{uid} 24</code>. Для отмены: /cancel")
         return
 
     if action == "userremove":
         db.remove_access(offset)
-        db.log_admin_action(call.from_user.id, "remove_access", offset)
+        db.log_admin_action(cfg.owner_id, "remove_access", offset)
         await call.answer("Доступ удалён", show_alert=True)
         row = db.admin_user_detail(offset)
         await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад к пользователям", callback_data="adm:users:0")],[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]])); return
@@ -2196,7 +2124,7 @@ async def admin_callback(call: CallbackQuery):
 
     if action == "userunblock":
         db.unblock_offer_user(offset)
-        db.log_admin_action(call.from_user.id, "unblock_user", offset)
+        db.log_admin_action(cfg.owner_id, "unblock_user", offset)
         for connection in db.list_connections():
             if int(connection['user_id']) == offset:
                 db.set_connection_blocked(connection['connection_id'], False)
@@ -2209,7 +2137,7 @@ async def admin_callback(call: CallbackQuery):
         current = db.is_prank_mode(uid)
         db.set_prank_mode(uid, not current)
         status = "включён" if not current else "выключен"
-        db.log_admin_action(call.from_user.id, "toggle_prank", uid, f"prank={not current}")
+        db.log_admin_action(cfg.owner_id, "toggle_prank", uid, f"prank={not current}")
         await call.answer(f"Режим пранка {status}", show_alert=True)
         # Обновляем сообщение
         row = db.admin_user_detail(uid)
@@ -2226,7 +2154,7 @@ async def admin_callback(call: CallbackQuery):
 
     if action == "resetlinks":
         deleted = db.reset_all_links(offset)
-        db.log_admin_action(call.from_user.id, "reset_links", offset, f"deleted={deleted}")
+        db.log_admin_action(cfg.owner_id, "reset_links", offset, f"deleted={deleted}")
         if deleted > 0:
             await call.answer(f"Сброшено привязок: {deleted}", show_alert=True)
         else:
@@ -2242,9 +2170,9 @@ async def admin_callback(call: CallbackQuery):
 
     if action == "offers":
         if raw_arg in {"all", "pending", "accepted", "declined", "expired"}:
-            admin_offer_filters[call.from_user.id] = raw_arg
+            admin_offer_filters[cfg.owner_id] = raw_arg
             offset = 0
-        status = admin_offer_filters.get(call.from_user.id, "all")
+        status = admin_offer_filters.get(cfg.owner_id, "all")
         rows = db.admin_offers(status, 8, offset)
         labels = {"all":"все", "pending":"ожидают", "accepted":"приняты", "declined":"отклонены", "expired":"истекли"}
         lines = [f"<b>Оферы · {labels.get(status,status)}</b>", ""]
@@ -2264,7 +2192,7 @@ async def admin_callback(call: CallbackQuery):
         await call.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
 
     if action == "offerpage":
-        status = admin_offer_filters.get(call.from_user.id, "all")
+        status = admin_offer_filters.get(cfg.owner_id, "all")
         rows = db.admin_offers(status, 8, offset)
         lines=[f"<b>Оферы · {status}</b>", ""]
         buttons=[]
@@ -2292,9 +2220,9 @@ async def admin_callback(call: CallbackQuery):
     if action == "payments":
         # Обработка фильтра
         if raw_arg in {"all", "paid", "pending", "cancelled"}:
-            admin_offer_filters[f"{call.from_user.id}_payments"] = raw_arg
+            admin_offer_filters[f"{cfg.owner_id}_payments"] = raw_arg
             offset = 0
-        status_filter = admin_offer_filters.get(f"{call.from_user.id}_payments", "all")
+        status_filter = admin_offer_filters.get(f"{cfg.owner_id}_payments", "all")
         
         rows=db.admin_payments(8, offset, status_filter)
         
@@ -2337,7 +2265,7 @@ async def admin_callback(call: CallbackQuery):
 
     if action == "paymentpage":
         # Навигация по платежам с сохранением фильтра
-        status_filter = admin_offer_filters.get(f"{call.from_user.id}_payments", "all")
+        status_filter = admin_offer_filters.get(f"{cfg.owner_id}_payments", "all")
         rows=db.admin_payments(8, offset, status_filter)
         
         filter_labels = {"all": "все", "paid": "оплачены", "pending": "ожидают", "cancelled": "отменены"}
@@ -2436,7 +2364,7 @@ async def admin_callback(call: CallbackQuery):
         return
 
     if action == "offer_command":
-        awaiting_offer_command.add(call.from_user.id)
+        awaiting_offer_command.add(cfg.owner_id)
         await call.message.answer(
             f"Текущая команда: <code>{html.escape(get_offer_command())}</code>\n\n"
             "Отправьте новую команду одним словом. Можно использовать буквы, цифры и _.\n"
@@ -2517,7 +2445,7 @@ async def admin_callback(call: CallbackQuery):
 
     if action == "revoke_all_confirm":
         removed = db.revoke_all_access(cfg.owner_id)
-        db.log_admin_action(call.from_user.id, "revoke_all_access", None, f"removed={removed}")
+        db.log_admin_action(cfg.owner_id, "revoke_all_access", None, f"removed={removed}")
         await call.answer("Доступы отозваны", show_alert=True)
         await call.message.edit_text(
             f"Массовый отзыв завершён. Удалено активных выдач: {removed}.\\n"
@@ -2530,7 +2458,7 @@ async def admin_callback(call: CallbackQuery):
         return
 
     if action == "payment_price":
-        awaiting_payment_price.add(call.from_user.id)
+        awaiting_payment_price.add(cfg.owner_id)
         await call.answer()
         await call.message.answer(
             f"Текущая цена: <b>{get_payment_price():g} TON</b>\n\n"
@@ -2540,25 +2468,25 @@ async def admin_callback(call: CallbackQuery):
         return
 
     if action == "access_duration":
-        awaiting_access_duration.add(call.from_user.id)
+        awaiting_access_duration.add(cfg.owner_id)
         await call.answer()
         await call.message.answer(f"Текущий срок: {get_access_duration_hours():g} часов. Отправьте новый срок от 1 до 8760 часов. Для отмены: /cancel")
         return
 
     if action == "referral_hours":
-        awaiting_referral_hours.add(call.from_user.id)
+        awaiting_referral_hours.add(cfg.owner_id)
         await call.answer()
         await call.message.answer("Отправьте количество часов реферального бонуса (от 1 до 8760). Сейчас действует 24 часа. Для отмены: /cancel")
         return
 
     if action == "banner":
-        awaiting_banner.add(call.from_user.id)
+        awaiting_banner.add(cfg.owner_id)
         await call.answer()
         await call.message.answer("Отправьте новую фотографию баннера. Она будет показана вместе с текстом «Привет, выбери действие» и кнопками /start. Для отмены: /cancel")
         return
     
     if action == "prankphoto":
-        awaiting_prank_photo.add(call.from_user.id)
+        awaiting_prank_photo.add(cfg.owner_id)
         await call.answer()
         await call.message.answer("Отправьте фото для режима пранка. Для отмены: /cancel")
         return
@@ -2570,7 +2498,7 @@ async def admin_callback(call: CallbackQuery):
         return
 
     if action == "allow_temp":
-        awaiting_access_grant.add(call.from_user.id)
+        awaiting_access_grant.add(cfg.owner_id)
         await call.answer()
         await call.message.answer(
             "Отправьте ID или @username и срок в часах через пробел.\n"
@@ -2604,7 +2532,7 @@ async def admin_callback(call: CallbackQuery):
         await call.answer("Доступ заблокирован")
         return
     if action == "broadcast":
-        awaiting_broadcast.add(call.from_user.id)
+        awaiting_broadcast.add(cfg.owner_id)
         await call.answer()
         try:
             await call.message.edit_text("<b>Рассылка</b>\nОтправь текст, фото, видео или GIF. Для отмены: /cancel", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Отмена", callback_data="adm:home:0")]]))
@@ -2656,7 +2584,7 @@ async def admin_callback(call: CallbackQuery):
         markup = admin_keyboard()
     else:
         if action == "home":
-            awaiting_broadcast.discard(call.from_user.id)
+            awaiting_broadcast.discard(cfg.owner_id)
         text = admin_home_text()
         markup = admin_keyboard()
 
