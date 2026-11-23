@@ -935,99 +935,8 @@ async def activate_key_callback(call: CallbackQuery):
     await call.answer()
 
 
-# Обработчик для получения ключа активации (только для пользователей в режиме ожидания)
-@dp.message(F.text & ~F.text.startswith('/'))
-async def handle_activation_key(message: Message):
-    """Обработка введённого ключа активации"""
-    if not message.from_user or message.from_user.id not in awaiting_activation_key:
-        return  # Пропускаем, если пользователь не в режиме ожидания ключа
-    
-    user = message.from_user
-    key = message.text.strip().upper()
-    
-    # Проверяем формат ключа
-    import re
-    if not re.match(r'^KEY-[A-Z0-9]{4}-[A-Z0-9]{4}$', key):
-        await message.answer(
-            "❌ Неверный формат ключа.\n\n"
-            "Ключ должен быть в формате: <code>KEY-XXXX-XXXX</code>\n\n"
-            "Попробуйте ещё раз или отправьте /cancel для отмены."
-        )
-        return
-    
-    # Удаляем из ожидания
-    awaiting_activation_key.discard(user.id)
-    
-    # Пытаемся активировать
-    result = db.activate_twink_with_key(user.id, key)
-    
-    if not result['success']:
-        error_messages = {
-            'invalid_key': '❌ Ключ недействителен или срок доступа основного аккаунта истёк.',
-            'self_activation': '❌ Нельзя использовать свой же ключ.',
-        }
-        error_msg = error_messages.get(result['error'], f"❌ {result.get('message', 'Ошибка активации')}")
-        
-        await message.answer(
-            f"{error_msg}\n\n"
-            "Проверьте ключ и попробуйте снова через кнопку «🔑 Активировать ключ».",
-            reply_markup=main_menu_keyboard(user.id)
-        )
-        return
-    
-    # Успешная активация
-    owner_id = result['owner_user_id']
-    old_twink_id = result.get('old_twink_id')
-    
-    # Получаем информацию о сроке
-    expires = result.get('expires_at')
-    if expires:
-        seconds = max(0, int((expires - datetime.now(expires.tzinfo or timezone.utc)).total_seconds()))
-        days, rem = divmod(seconds, 86400)
-        hours, rem = divmod(rem, 3600)
-        minutes = rem // 60
-        remaining = (f"{days} дн. " if days else "") + f"{hours} ч. {minutes} мин."
-    else:
-        remaining = "Бессрочно"
-    
-    await message.answer(
-        "✅ <b>Ключ активирован!</b>\n\n"
-        f"Вы успешно привязаны к основному аккаунту.\n"
-        f"Осталось доступа: <b>{remaining}</b>\n\n"
-        "Теперь вы можете создавать оферы.",
-        reply_markup=main_menu_keyboard(user.id)
-    )
-    
-    # Уведомляем старый твинк (если был)
-    if old_twink_id:
-        try:
-            await bot.send_message(
-                old_twink_id,
-                "⚠️ <b>Вы были отвязаны</b>\n\n"
-                "Владелец основного аккаунта привязал другой твинк.\n"
-                "Ваш доступ больше не действует.",
-                reply_markup=main_menu_keyboard(old_twink_id)
-            )
-        except Exception:
-            log.exception("Could not notify old twink %s", old_twink_id)
-    
-    # Уведомляем админа
-    try:
-        owner_user = db.get_user(owner_id)
-        owner_name = owner_user.get('username') or owner_user.get('first_name') or f"ID {owner_id}" if owner_user else f"ID {owner_id}"
-        
-        await bot.send_message(
-            cfg.owner_id,
-            f"🔗 <b>Привязан новый твинк</b>\n\n"
-            f"Основной: @{owner_name}\n"
-            f"Твинк: @{user.username or 'без username'} (ID: <code>{user.id}</code>)\n"
-            f"Осталось доступа: <b>{remaining}</b>"
-        )
-    except Exception:
-        log.exception("Could not notify admin about key activation")
+# ОБРАБОТЧИК УДАЛЁН - логика перенесена в начало on_message чтобы не блокировать другие awaiting состояния
 
-
-# Старые обработчики (закомментированы, оставлены для истории)
 # @dp.callback_query(F.data == "reset_my_accounts")
 # @dp.callback_query(F.data == "activate_access")
 # @dp.callback_query(F.data.startswith("access_link_yes:"))
@@ -1410,6 +1319,93 @@ async def on_business_message(message: Message):
 
 @dp.message()
 async def on_message(message: Message):
+    # Обработка активации ключа - добавлено в начало чтобы не было конфликтов с другими awaiting состояниями
+    if message.from_user and message.from_user.id in awaiting_activation_key:
+        user = message.from_user
+        key = (message.text or "").strip().upper()
+        
+        # Проверяем формат ключа
+        import re
+        if not re.match(r'^KEY-[A-Z0-9]{4}-[A-Z0-9]{4}$', key):
+            await message.answer(
+                "❌ Неверный формат ключа.\n\n"
+                "Ключ должен быть в формате: <code>KEY-XXXX-XXXX</code>\n\n"
+                "Попробуйте ещё раз или отправьте /cancel для отмены."
+            )
+            return
+        
+        # Удаляем из ожидания
+        awaiting_activation_key.discard(user.id)
+        
+        # Пытаемся активировать
+        result = db.activate_twink_with_key(user.id, key)
+        
+        if not result['success']:
+            error_messages = {
+                'invalid_key': '❌ Ключ недействителен или срок доступа основного аккаунта истёк.',
+                'self_activation': '❌ Нельзя использовать свой же ключ.',
+            }
+            error_msg = error_messages.get(result['error'], f"❌ {result.get('message', 'Ошибка активации')}")
+            
+            await message.answer(
+                f"{error_msg}\n\n"
+                "Проверьте ключ и попробуйте снова через кнопку «🔑 Активировать ключ».",
+                reply_markup=main_menu_keyboard(user.id)
+            )
+            return
+        
+        # Успешная активация
+        owner_id = result['owner_user_id']
+        old_twink_id = result.get('old_twink_id')
+        
+        # Получаем информацию о сроке
+        expires = result.get('expires_at')
+        if expires:
+            seconds = max(0, int((expires - datetime.now(expires.tzinfo or timezone.utc)).total_seconds()))
+            days, rem = divmod(seconds, 86400)
+            hours, rem = divmod(rem, 3600)
+            minutes = rem // 60
+            remaining = (f"{days} дн. " if days else "") + f"{hours} ч. {minutes} мин."
+        else:
+            remaining = "Бессрочно"
+        
+        await message.answer(
+            "✅ <b>Ключ активирован!</b>\n\n"
+            f"Вы успешно привязаны к основному аккаунту.\n"
+            f"Осталось доступа: <b>{remaining}</b>\n\n"
+            "Теперь вы можете создавать оферы.",
+            reply_markup=main_menu_keyboard(user.id)
+        )
+        
+        # Уведомляем старый твинк (если был)
+        if old_twink_id:
+            try:
+                await bot.send_message(
+                    old_twink_id,
+                    "⚠️ <b>Вы были отвязаны</b>\n\n"
+                    "Владелец основного аккаунта привязал другой твинк.\n"
+                    "Ваш доступ больше не действует.",
+                    reply_markup=main_menu_keyboard(old_twink_id)
+                )
+            except Exception:
+                log.exception("Could not notify old twink %s", old_twink_id)
+        
+        # Уведомляем админа
+        try:
+            owner_user = db.get_user(owner_id)
+            owner_name = owner_user.get('username') or owner_user.get('first_name') or f"ID {owner_id}" if owner_user else f"ID {owner_id}"
+            
+            await bot.send_message(
+                cfg.owner_id,
+                f"🔗 <b>Привязан новый твинк</b>\n\n"
+                f"Основной: @{owner_name}\n"
+                f"Твинк: @{user.username or 'без username'} (ID: <code>{user.id}</code>)\n"
+                f"Осталось доступа: <b>{remaining}</b>"
+            )
+        except Exception:
+            log.exception("Could not notify admin about key activation")
+        return
+    
     if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_admin_search:
         raw = (message.text or "").strip()
         if raw.lower() == "/cancel":
