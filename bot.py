@@ -598,9 +598,22 @@ async def on_cancel(message: Message):
     
     user = message.from_user
     
-    # Удаляем из всех режимов ожидания
+    # Сбрасываем ожидающие состояния, чтобы /cancel освобождал диалог.
     awaiting_activation_key.discard(user.id)
     awaiting_access_transfer.discard(user.id)
+    if user.id == cfg.owner_id:
+        for state in (
+            awaiting_admin_search,
+            awaiting_access_duration,
+            awaiting_referral_hours,
+            awaiting_offer_command,
+            awaiting_access_grant,
+            awaiting_banner,
+            awaiting_prank_photo,
+            awaiting_access_recovery,
+        ):
+            state.discard(user.id)
+        awaiting_profile_change.pop(user.id, None)
     
     await message.answer(
         "❌ <b>Действие отменено</b>",
@@ -845,7 +858,10 @@ async def activate_key_callback(call: CallbackQuery):
 async def handle_activation_key(message: Message):
     """Обработка введённого ключа активации"""
     if not message.from_user or message.from_user.id not in awaiting_activation_key:
-        return  # Пропускаем, если пользователь не в режиме ожидания ключа
+        # Этот ранний обработчик перехватывает обычный текст раньше общего
+        # обработчика. Передаём его дальше, чтобы состояния админки тоже работали.
+        await on_message(message)
+        return
     
     user = message.from_user
     key = message.text.strip().upper()
@@ -1375,10 +1391,27 @@ async def on_message(message: Message):
         if command.lower() in {"start", "admin", "админ", "cancel", "broadcast", "transfer", "reply"}:
             await message.answer("Это имя зарезервировано. Выберите другое. Например: <code>ху</code>.")
             return
-        db.set_setting("offer_command", command)
+        try:
+            db.set_setting("offer_command", command)
+            saved_command = get_offer_command()
+        except Exception:
+            log.exception("Failed to save offer command")
+            await message.answer(
+                "❌ Не удалось сохранить команду в базе данных. Проверьте подключение БД и попробуйте ещё раз.",
+                reply_markup=admin_keyboard(),
+            )
+            return
+        if saved_command.casefold() != command.casefold():
+            log.error("Offer command read-back mismatch: requested=%r saved=%r", command, saved_command)
+            await message.answer(
+                f"❌ Команда не сохранилась. В базе сейчас: <code>{html.escape(saved_command)}</code>. Попробуйте ещё раз.",
+                reply_markup=admin_keyboard(),
+            )
+            return
+
         db.log_admin_action(cfg.owner_id, "change_offer_command", None, f"command={command}")
         awaiting_offer_command.discard(cfg.owner_id)
-        
+
         # Рассылка всем пользователям о новой команде
         broadcast_text = f"📢 <b>Новая команда для отправки офера</b>\n\n<code>{html.escape(command)}</code>"
         recipients = db.list_broadcast_users()
