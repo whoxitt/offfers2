@@ -159,10 +159,12 @@ def transfer_keyboard(url: str, locale: str, offer_id: int):
 
 
 def subscription_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Перейти на канал", url=cfg.channel_url)],
-        [InlineKeyboardButton(text="✅ Подтвердить подписку", callback_data="check_subscription")]
-    ])
+    buttons = []
+    # Добавляем кнопку канала только если URL валидный и не пустой
+    if cfg.channel_url and cfg.channel_url.startswith("https://t.me/") and len(cfg.channel_url) > 15:
+        buttons.append([InlineKeyboardButton(text="📢 Перейти на канал", url=cfg.channel_url)])
+    buttons.append([InlineKeyboardButton(text="✅ Подтвердить подписку", callback_data="check_subscription")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def main_menu_keyboard(user_id: int | None = None):
@@ -179,10 +181,12 @@ def main_menu_keyboard(user_id: int | None = None):
 
 
 def purchase_success_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💬 Чат покупателей", url=cfg.users_chat_url)],
-        [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")]
-    ])
+    buttons = []
+    # Добавляем кнопку чата только если URL валидный и не пустой
+    if cfg.users_chat_url and cfg.users_chat_url.startswith("https://t.me/") and len(cfg.users_chat_url) > 15:
+        buttons.append([InlineKeyboardButton(text="💬 Чат покупателей", url=cfg.users_chat_url)])
+    buttons.append([InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def get_offer_amount_style() -> str:
