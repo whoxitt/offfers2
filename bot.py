@@ -424,8 +424,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
             body = f"<b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> за подарок {gift_link}.\n\n"
         
         elif test_number == 10:
-            # тест10: добавляем "Это"
-            body = f"<b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> за подарок {gift_link}.\n\nЭто"
+            # тест10: добавляем финальную фразу с латинскими символами
+            body = f"<b>{seller_name}</b> прeдлaгaeт Вам <b>{amount}</b> за подарок {gift_link}.\n\nCдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
         
         elif test_number == 11:
             # тест11: добавляем "Это предложение"
