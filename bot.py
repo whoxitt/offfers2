@@ -133,6 +133,7 @@ def instruction(locale="ru"):
 def error_text(kind):
     if kind == "nft": return "❌ Не нашёл ссылку на NFT.\n\n" + instruction()
     if kind == "price": return "❌ Не нашёл цену офера.\n\n" + instruction()
+    if kind == "test_format": return "❌ Не нашёл NFT ссылку или цену в тестовой команде.\n\n" + instruction()
     return "❌ Не удалось обработать офер."
 
 
