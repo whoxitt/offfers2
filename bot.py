@@ -199,8 +199,7 @@ def subscription_keyboard():
 
 
 def main_menu_keyboard(user_id: int | None = None):
-    has_access = bool(user_id and db.has_access(user_id, cfg.owner_id, cfg.offer_access_mode))
-    first_button = InlineKeyboardButton(text="Подписка", callback_data="my_subscription") if has_access else InlineKeyboardButton(text="Купить доступ", callback_data="buy_access")
+    first_button = InlineKeyboardButton(text="♾️ Постоянный доступ", callback_data="my_subscription")
     return InlineKeyboardMarkup(inline_keyboard=[
         [first_button],
         [InlineKeyboardButton(text="� Активировать ключ", callback_data="activate_key")],
@@ -300,17 +299,6 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         if db.is_blocked(seller_id) or int(bc["is_blocked"]):
             await reply_message(message, "❌ Вы заблокированы. Обратитесь в поддержку.")
             return
-        if not db.has_access(seller_id, cfg.owner_id, cfg.offer_access_mode):
-            await reply_message(
-                message, 
-                "🔒 <b>Доступ не оплачен</b>\n\n"
-                "Для отправки оферов необходимо купить доступ.\n"
-                f"Стоимость: <b>{get_payment_price():g} TON</b>",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💎 Купить доступ", url=f"https://t.me/{cfg.bot_username}?start=buy")]
-                ])
-            )
-            return
     else:
         seller_id = sender.id
         bc = db.get_connection_for_user(seller_id)
@@ -319,17 +307,6 @@ async def process_offer(message: Message, business_connection_id: str | None = N
             return
         if db.is_blocked(seller_id) or int(bc["is_blocked"]):
             await reply_message(message, "❌ Вы заблокированы. Обратитесь в поддержку.")
-            return
-        if not db.has_access(seller_id, cfg.owner_id, cfg.offer_access_mode):
-            await reply_message(
-                message, 
-                "🔒 <b>Доступ не оплачен</b>\n\n"
-                "Для отправки оферов необходимо купить доступ.\n"
-                f"Стоимость: <b>{get_payment_price():g} TON</b>",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="💎 Купить доступ", url=f"https://t.me/{cfg.bot_username}?start=buy")]
-                ])
-            )
             return
         buyer_id = message.chat.id
         buyer_username = message.chat.username if message.chat else None
@@ -772,29 +749,8 @@ async def on_start(message: Message):
         )
         return
     
-    # Обработка параметра /start buy
-    if message.text and "buy" in message.text.lower():
-        # Проверяем есть ли уже доступ
-        if db.has_access(user.id, cfg.owner_id, cfg.offer_access_mode):
-            caption = (
-                "✅ <b>У вас уже есть доступ!</b>\n\n"
-                "Вы можете пользоваться всеми функциями бота."
-            )
-            await send_with_banner(message, caption, reply_markup=main_menu_keyboard(user.id))
-            return
-        
-        # Показываем варианты оплаты
-        # Не переиспользуем старый счёт: цена могла измениться в админке.
-        db.cancel_pending_payments(user.id)
-        current_price = get_payment_price()
-        memo = str(uuid.uuid4())[:8].upper()
-        payment_id = db.create_payment(user.id, memo, current_price)
-        pending = {'id': payment_id, 'memo': memo, 'amount': current_price}
-        
-        await show_payment_options(message, user.id, pending)
-        return
-    
-    # Пробного доступа нет: /start только показывает меню и не меняет подписку.
+    # Access purchases are disabled: everyone has permanent access.
+    # Old /start buy links simply show the regular menu.
     caption = "<blockquote>Привет, выбери действие</blockquote>"
     await send_with_banner(message, caption, reply_markup=main_menu_keyboard(user.id))
 
@@ -859,9 +815,8 @@ async def my_subscription_callback(call: CallbackQuery):
         owner_name = twink_info['owner_username'] or twink_info['owner_first_name'] or "основной аккаунт"
         text = (
             f"<b>🔗 Привязанный аккаунт</b>\n\n"
-            f"Вы используете подписку аккаунта:\n"
-            f"<b>@{owner_name}</b>\n\n"
-            f"Осталось: <b>{remaining}</b>"
+            f"Аккаунт <b>@{owner_name}</b> связан для функции ключей.\n"
+            "Доступ к оферам: <b>бесплатный и бессрочный</b>"
         )
     else:
         # Это основной аккаунт
@@ -885,7 +840,7 @@ async def my_subscription_callback(call: CallbackQuery):
         # Проверяем, есть ли привязанный твинк
         linked_twink_id = db.get_linked_twink(uid)
         
-        text = f"<b>📊 Подписка</b>\n\nОсталось: <b>{remaining}</b>\n\n"
+        text = f"<b>♾️ Доступ</b>\n\nДоступ к оферам: <b>Бессрочно и бесплатно</b>\n\n"
         text += f"<b>🔑 Ключ для активации твинка:</b>\n<code>{activation_key}</code>\n\n"
         
         if linked_twink_id:
@@ -1027,7 +982,7 @@ async def my_profile_callback(call: CallbackQuery):
     
     # Проверяем доступ
     has_paid_access = db.has_access(u.id, cfg.owner_id, cfg.offer_access_mode)
-    access_text = "🟢 Активен" if has_paid_access else "🔴 Не оплачен"
+    access_text = "♾️ Бессрочный" if has_paid_access else "🔴 Недоступен"
     
     text = (
         "<b>👤 МОЙ КАБИНЕТ</b>\n"
@@ -1035,16 +990,13 @@ async def my_profile_callback(call: CallbackQuery):
         f"✨ <b>{safe_name}</b>\n"
         f"🔗 {safe_username}  ·  ID: <code>{u.id}</code>\n\n"
         "<b>╭ ДОСТУП</b>\n"
-        f"├ 💎 Статус: <b>{access_text}</b>\n"
+        f"├ ♾️ Статус: <b>{access_text}</b>\n"
         f"├ 🔌 Business: {connection_status}\n"
         f"╰ 🎁 Получатель: <code>{safe_transfer}</code>\n\n"
         f"<b>📅 С нами с:</b> <code>{created_text}</code>"
     )
     
     keyboard_buttons = [[InlineKeyboardButton(text="🎁 Настроить получателя", callback_data="profile_transfer_help")]]
-    
-    if not has_paid_access:
-        keyboard_buttons.insert(0, [InlineKeyboardButton(text="💎 Купить доступ", callback_data="buy_access")])
     
     keyboard_buttons.append([InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")])
     keyboard_buttons.append([InlineKeyboardButton(text="« Главное меню", callback_data="back_to_start")])
@@ -1070,199 +1022,15 @@ async def profile_transfer_help_callback(call: CallbackQuery):
 
 @dp.callback_query(F.data == "buy_access")
 async def buy_access_callback(call: CallbackQuery):
-    """Обработчик кнопки 'Купить доступ'"""
-    if not call.from_user:
-        await call.answer("Ошибка", show_alert=True)
-        return
-    
-    # Новый счёт всегда создаётся по актуальной цене из админки.
-    # Старые неоплаченные счета отменяются и не могут подменить новую сумму.
-    db.cancel_pending_payments(call.from_user.id)
-    current_price = get_payment_price()
-    memo = str(uuid.uuid4())[:8].upper()
-    payment_id = db.create_payment(call.from_user.id, memo, current_price)
-
-    await show_payment_options(call.message, call.from_user.id, {
-        'id': payment_id,
-        'memo': memo,
-        'amount': current_price
-    })
-    await call.answer()
+    # Compatibility for old inline keyboards: purchases are disabled.
+    await call.answer("Доступ теперь бесплатный и бессрочный.", show_alert=True)
 
 
-async def show_payment_options(message: Message, user_id: int, payment: dict):
-    """Показать варианты оплаты"""
-    amount = payment['amount']
-    memo = payment['memo']
-    payment_id = payment['id']
-    
-    text = (
-        "<b>Оплата доступа</b>\n\n"
-        f"Стоимость: <b>{amount:g} TON</b>\n"
-        f"Срок доступа: <b>{get_access_duration_hours():g} часов</b>\n\n"
-        "Выберите способ оплаты:"
-    )
-    
-    keyboard = []
-    
-    # Tonkeeper
-    if cfg.ton_wallet:
-        keyboard.append([InlineKeyboardButton(
-            text="Оплатить через Tonkeeper",
-            callback_data=f"pay:ton:{payment_id}"
-        )])
-    
-    keyboard.append([InlineKeyboardButton(
-        text="Проверить оплату",
-        callback_data=f"pay:check:{payment_id}"
-    )])
-    
-    keyboard.append([InlineKeyboardButton(
-        text="Назад",
-        callback_data="back_to_start"
-    )])
-    
-    try:
-        await message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
-    except Exception:
-        await message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
+@dp.callback_query(F.data.startswith("pay:"))
+async def legacy_payment_callback(call: CallbackQuery):
+    # Legacy invoice buttons are intentionally disabled after free permanent access.
+    await call.answer("Покупка доступа отключена: доступ бесплатный и бессрочный.", show_alert=True)
 
-
-@dp.callback_query(F.data.startswith("pay:ton:"))
-async def pay_ton_callback(call: CallbackQuery):
-    """Оплата через Tonkeeper"""
-    if not call.from_user or not cfg.ton_wallet:
-        await call.answer("Ошибка", show_alert=True)
-        return
-    
-    payment_id = int(call.data.split(":")[2])
-    payment = db.get_payment_by_id(payment_id)
-    
-    if not payment or payment['user_id'] != call.from_user.id:
-        await call.answer("Платёж не найден", show_alert=True)
-        return
-    
-    if payment['status'] == 'paid':
-        await call.answer("✅ Уже оплачено!", show_alert=True)
-        return
-    
-    memo = payment['memo']
-    amount = payment['amount']
-    
-    # Формируем ссылку для Tonkeeper
-    from urllib.parse import quote
-    ton_url = f"https://app.tonkeeper.com/transfer/{cfg.ton_wallet}?amount={int(amount * 1_000_000_000)}&text={quote(memo, safe='')}"
-    
-    text = (
-        "<b>Оплата через Tonkeeper</b>\n\n"
-        f"Сумма: <b>{amount:g} TON</b>\n"
-        f"Кошелёк: <code>{cfg.ton_wallet}</code>\n"
-        f"Комментарий: <code>{memo}</code>\n\n"
-        "Укажите этот комментарий при переводе. После оплаты нажмите «Проверить оплату»."
-    )
-    
-    keyboard = [
-        [InlineKeyboardButton(text="Открыть Tonkeeper", url=ton_url)],
-        [InlineKeyboardButton(text="Проверить оплату", callback_data=f"pay:check:{payment_id}")],
-        [InlineKeyboardButton(text="Назад", callback_data="buy_access")]
-    ]
-    
-    try:
-        await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
-    except Exception:
-        await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=keyboard))
-
-
-@dp.callback_query(F.data.startswith("pay:check:"))
-async def pay_check_callback(call: CallbackQuery):
-    """Проверка оплаты"""
-    if not call.from_user:
-        await call.answer("Ошибка", show_alert=True)
-        return
-    
-    payment_id = int(call.data.split(":")[2])
-    payment = db.get_payment_by_id(payment_id)
-    
-    if not payment or payment['user_id'] != call.from_user.id:
-        await call.answer("Платёж не найден", show_alert=True)
-        return
-    
-    if payment['status'] == 'paid':
-        await call.answer("✅ Уже оплачено!", show_alert=True)
-        await call.message.answer(
-            "✅ <b>ДОСТУП АКТИВИРОВАН!</b>\n\n"
-            "Удачного ворка! Смотри инструкцию 📘",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
-                [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
-            ])
-        )
-        return
-    
-    await call.answer("🔄 Проверяю оплату...", show_alert=False)
-    
-    paid = False
-    
-    # Проверяем Tonkeeper
-    if cfg.ton_wallet:
-        ton_api = TonkeeperAPI(cfg.ton_wallet, getattr(cfg, "ton_api_key", ""))
-        try:
-            # Проверяем напрямую по свежей истории входящих транзакций TON.
-            paid = await ton_api.check_transaction(payment['memo'], payment['amount'])
-        except Exception:
-            log.exception("TON payment verification unavailable for payment_id=%s", payment_id)
-            await call.answer("Не удалось проверить сеть TON. Попробуйте ещё раз через несколько секунд.", show_alert=True)
-            return
-    
-    if paid:
-        # Одной транзакцией подтверждаем оплату, выдаём доступ и начисляем 24 часа пригласившему.
-        try:
-            referral_hours = float(db.get_setting("referral_reward_hours", "24"))
-        except (TypeError, ValueError):
-            referral_hours = 24.0
-        referrer_id = db.confirm_payment_access_and_reward_referrer(
-            payment_id, call.from_user.id, get_access_duration_hours(), referral_hours
-        )
-        if referrer_id is None:
-            # None также возвращается при повторной проверке; проверяем статус платежа,
-            # чтобы не показывать успешное начисление повторно.
-            confirmed = db.get_payment_by_id(payment_id)
-            if not confirmed or confirmed.get("status") != "paid":
-                await call.answer("Не удалось подтвердить платёж. Попробуйте ещё раз.", show_alert=True)
-                return
-
-        caption = (
-            "Платёж подтверждён!\n\n"
-            f"Доступ к OfferBot активирован на {get_access_duration_hours():g} часов.\n"
-            "Удачного пользования!"
-        )
-        success_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📘 Инструкция", callback_data="show_instruction")],
-            [InlineKeyboardButton(text="👤 Мой кабинет", callback_data="my_profile")]
-        ])
-        await send_with_banner(call.message, caption, reply_markup=success_keyboard)
-        if referrer_id:
-            try:
-                await bot.send_message(
-                    referrer_id,
-                    f"Ваш приглашённый пользователь оплатил доступ. Вам начислено {referral_hours:g} часов доступа."
-                )
-            except Exception:
-                log.exception("Could not notify referrer user_id=%s", referrer_id)
-
-        # Уведомляем админа
-        try:
-            await bot.send_message(
-                cfg.owner_id,
-                f"💰 <b>Новый платёж!</b>\n"
-                f"Пользователь: {display_name(call.from_user)} (@{call.from_user.username or '—'})\n"
-                f"Сумма: {payment['amount']:g} TON\n"
-                f"ID: <code>{call.from_user.id}</code>"
-            )
-        except Exception:
-            pass
-    else:
-        await call.answer("Оплата не найдена", show_alert=True)
 
 @dp.callback_query(F.data == "support_start")
 async def support_start_callback(call: CallbackQuery):
@@ -1290,8 +1058,8 @@ async def test_privet_callback(call: CallbackQuery):
 @dp.callback_query(F.data == "show_instruction")
 async def show_instruction_callback(call: CallbackQuery):
     if not call.from_user or not db.has_access(call.from_user.id, cfg.owner_id, cfg.offer_access_mode):
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Купить", callback_data="buy_access")], [InlineKeyboardButton(text="Вернуться в меню", callback_data="back_to_start")]])
-        await call.message.answer("Для просмотра инструкции сначала необходим активный доступ.", reply_markup=kb)
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Вернуться в меню", callback_data="back_to_start")]])
+        await call.message.answer("Доступ к инструкции открыт всем пользователям.", reply_markup=kb)
         await call.answer()
         return
     try:
@@ -2520,8 +2288,6 @@ async def admin_callback(call: CallbackQuery):
         amount_style = get_offer_amount_style()
         amount_style_label = "Премиум-эмодзи ⭐💎" if amount_style == "premium" else "Текст Stars / Gram"
         text=("<b>Настройки</b>\n\n"
-              f"Цена доступа: <b>{get_payment_price():g} TON</b>\n"
-              f"Длительность доступа: <b>{get_access_duration_hours():g} часов</b>\n"
               f"Реферальный бонус: <b>{referral_hours:g} часов</b>\n"
               f"Команда офера: <code>{html.escape(get_offer_command())}</code>\n"
               f"Формат суммы в офере: <b>{amount_style_label}</b>\n"
@@ -2530,8 +2296,6 @@ async def admin_callback(call: CallbackQuery):
               f"Исключения: <code>{html.escape(', '.join(sorted(get_transfer_exceptions())) or 'нет')}</code>\n\nВыберите настройку.")
         markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Формат суммы в офере", callback_data="adm:amount_style:0")],
-            [InlineKeyboardButton(text="Изменить цену", callback_data="adm:payment_price:0")],
-            [InlineKeyboardButton(text="Изменить срок доступа", callback_data="adm:access_duration:0")],
             [InlineKeyboardButton(text="Изменить реферальный бонус", callback_data="adm:referral_hours:0")],
             [InlineKeyboardButton(text="Изменить команду офера", callback_data="adm:offer_command:0")],
             [InlineKeyboardButton(text="Изменить баннер", callback_data="adm:banner:0")],
@@ -2609,7 +2373,6 @@ async def admin_callback(call: CallbackQuery):
             "Выберите действие."
         )
         markup = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="Изменить цену доступа", callback_data="adm:payment_price:0")],
             [InlineKeyboardButton(text="Выдать доступ по @username", callback_data="adm:allow_username:0")],
             [InlineKeyboardButton(text="Выдать доступ по Telegram ID", callback_data="adm:allow_id:0")],
             [InlineKeyboardButton(text="Выдать временный доступ", callback_data="adm:allow_temp:0")],
