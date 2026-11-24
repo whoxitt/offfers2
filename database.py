@@ -430,13 +430,9 @@ class Database:
             return row["expires_at"] if row else None
 
     def has_access(self, user_id: int, owner_id: int, mode: str) -> bool:
-        # Access is now permanent and free for all users. Keep user blocking intact.
-        if self.is_blocked(user_id):
-            return False
-        return True
+        if user_id == owner_id or mode == "all": return True
+        if self.is_blocked(user_id): return False
         
-        # Legacy subscription/key access logic is intentionally retained below.
-        # Activation-key functions remain available for compatibility.
         # Проверяем новую систему с ключами (твинк)
         with self.connect() as con, con.cursor() as cur:
             # Проверяем, является ли пользователь твинком
