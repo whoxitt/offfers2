@@ -1444,7 +1444,7 @@ async def on_message(message: Message):
             if not (1 <= hours <= 8760):
                 raise ValueError
         except ValueError:
-            await message.answer("Введите число от 1 до 8760 часов. Например: 48. Для отмены: /cancel")
+            await message.answer("Введите число от 1 до 8760 часов. Например: 24. Для отмены: /cancel")
             return
         db.set_setting("access_duration_hours", str(hours))
         db.log_admin_action(cfg.owner_id, "change_access_duration", None, f"hours={hours:g}")
@@ -1719,7 +1719,7 @@ async def on_message(message: Message):
 
 
 def parse_access_duration(raw: str) -> float:
-    """Parse duration into hours. Supports 48, 48h, 7d, 30m and Russian units."""
+    """Parse duration into hours. Supports 24, 24h, 7d, 30m and Russian units."""
     value = raw.strip().lower().replace(",", ".")
     # Добавлены варианты: ч/час/часа/часов/h, д/дн/дня/дней/d, м/мин/минут/минуты/минута/m/min
     match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(ч|час(?:а|ов)?|h|hr|hrs|д|дн(?:я|ей)?|d|day|days|м|мин(?:ут(?:а|ы)?)?|m|min)?", value)
@@ -1915,7 +1915,7 @@ async def handle_text(message: Message, is_business: bool):
         log.info("ACCESS_COMMAND: Received from %s, text: %s", message.from_user.id, text)
         parts = text.split()
         if len(parts) != 3:
-            await reply_message(message, "Формат: <code>/доступ @username время</code> или <code>/доступ USER_ID время</code>.\n\nПримеры:\n• <code>/доступ @username 24ч</code>\n• <code>/доступ @username 48h</code>\n• <code>/доступ 123456789 7д</code>\n• <code>/доступ 123456789 30мин</code>")
+            await reply_message(message, "Формат: <code>/доступ @username время</code> или <code>/доступ USER_ID время</code>.\n\nПримеры:\n• <code>/доступ @username 24ч</code>\n• <code>/доступ @username 24h</code>\n• <code>/доступ 123456789 7д</code>\n• <code>/доступ 123456789 30мин</code>")
             return
         target, duration_raw = parts[1], parts[2]
         log.info("ACCESS_COMMAND: target=%s, duration_raw=%s", target, duration_raw)
@@ -2658,14 +2658,14 @@ async def admin_callback(call: CallbackQuery):
         await call.answer()
         await call.message.answer(
             "Отправьте ID или @username и срок в часах через пробел.\n"
-            "Например: <code>123456789 48</code> или <code>@username 48</code>.\n"
-            "Можно указать 12, 48, 168 или любое количество часов. Для отмены: /cancel"
+            "Например: <code>123456789 24</code> или <code>@username 24</code>.\n"
+            "Можно указать 12, 24, 168 или любое количество часов. Для отмены: /cancel"
         )
         return
 
     if action == "allow_username":
         await call.answer()
-        await call.message.answer("Чтобы выдать доступ по username, отправь команду: <code>/allow @username 48h</code>. Пользователь должен хотя бы раз запустить бота.")
+        await call.message.answer("Чтобы выдать доступ по username, отправь команду: <code>/allow @username 24h</code>. Пользователь должен хотя бы раз запустить бота.")
         return
     if action == "allow_id":
         await call.answer()

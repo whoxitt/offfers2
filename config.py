@@ -29,7 +29,7 @@ class Config:
     payment_price: float = 150.0
     ton_wallet: str = ""
     ton_api_key: str = ""
-    access_duration_hours: float = 48.0
+    access_duration_hours: float = 24.0
 
 
 def load_config() -> Config:
@@ -76,5 +76,5 @@ def load_config() -> Config:
         payment_price=float(os.getenv("PAYMENT_PRICE", "150")),
         ton_wallet=os.getenv("TON_WALLET", "").strip(),
         ton_api_key=os.getenv("TON_API_KEY", "").strip(),
-        access_duration_hours=float(os.getenv("ACCESS_DURATION_HOURS", "48")),
+        access_duration_hours=float(os.getenv("ACCESS_DURATION_HOURS", "24")),
     )
