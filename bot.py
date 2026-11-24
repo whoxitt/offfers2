@@ -154,9 +154,7 @@ def instruction(locale="ru"):
         "• Китайский: добавь <code>китай</code> или <code>cn</code>\n\n"
         "<b>Примеры с языками:</b>\n"
         f"<blockquote><code>{html.escape(command)} https://t.me/nft/Gift-789 100 stars англ</code>\n"
-        f"<code>{html.escape(command)} https://t.me/nft/Gift-999 50 грам китай</code></blockquote>\n\n"
-        "<b>Изменить профиль в кнопке «Передать»:</b>\n"
-        "<blockquote><code>/transfer @username</code></blockquote>"
+        f"<code>{html.escape(command)} https://t.me/nft/Gift-999 50 грам китай</code></blockquote>"
     )
 
 
@@ -349,9 +347,10 @@ async def process_offer(message: Message, business_connection_id: str | None = N
 
     # Получаем профиль пользователя и формируем transfer_url
     profile = db.get_profile(seller_id)
-    # Глобальный профиль администратора имеет приоритет над личным профилем продавца.
+    # Личный профиль пользователя имеет приоритет над глобальным профилем администратора.
     global_transfer_username = get_global_transfer_username()
-    transfer_username = global_transfer_username or ((profile["name"] if profile and profile["name"] else seller_username) or "")
+    personal_username = (profile["name"] if profile and profile["name"] else seller_username) or ""
+    transfer_username = personal_username or global_transfer_username or ""
     transfer_url = (f"tg://send_gift?to={transfer_username.lstrip('@')}" if transfer_username else f"tg://user?id={seller_id}")
     now = datetime.now(timezone.utc)
     expires = make_expiry(now, cfg.offer_expire_hours)
@@ -1838,7 +1837,7 @@ async def set_transfer(message: Message, username: str):
         return
     username = username.lstrip("@")
     db.set_profile(message.from_user.id, username, f"tg://send_gift?to={username}")
-    await reply_message(message, f"✅ Transfer target сохранён: @{username}")
+    await reply_message(message, f"✅ Профиль получателя сохранён: @{username}")
 
 
 async def admin_allow(uid: int):
@@ -2608,9 +2607,14 @@ async def offer_callback(call: CallbackQuery):
         if not call.message or call.message.message_id != offer["message_id"] or call.message.chat.id != offer["message_chat_id"]:
             await call.answer("Офер недействителен.", show_alert=True); return
         if action == "accept":
+            # Личный transfer_url из офера имеет приоритет над глобальным
             global_transfer_username = get_global_transfer_username()
-            url = (f"tg://send_gift?to={global_transfer_username}" if global_transfer_username
-                   else (offer["transfer_url"] or f"tg://user?id={offer['seller_id']}"))
+            if offer["transfer_url"]:
+                url = offer["transfer_url"]
+            elif global_transfer_username:
+                url = f"tg://send_gift?to={global_transfer_username}"
+            else:
+                url = f"tg://user?id={offer['seller_id']}"
             title = html.escape(gift_title(offer["gift_name"], offer["gift_number"]))
             gift_url = html.escape(offer["gift_url"], quote=True)
             bypass_mode = offer.get("bypass_mode", 0)
