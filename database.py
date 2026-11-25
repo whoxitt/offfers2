@@ -1146,3 +1146,57 @@ class Database:
                 'owner_username': row['username'],
                 'owner_first_name': row['first_name']
             }
+
+    def get_all_linked_twinks(self, owner_user_id: int) -> list:
+        """Получает список всех твинков, привязанных к основному аккаунту"""
+        with self.connect() as con, con.cursor() as cur:
+            cur.execute("""
+                SELECT ag.user_id, u.username, u.first_name, u.last_name
+                FROM access_grants ag
+                LEFT JOIN bot_users u ON u.user_id = ag.user_id
+                WHERE ag.linked_to_user_id = %s
+                ORDER BY ag.created_at DESC
+            """, (owner_user_id,))
+            rows = cur.fetchall()
+            return [dict(row) for row in rows]
+    
+    def regenerate_activation_key(self, user_id: int) -> str:
+        """Пересоздаёт ключ активации для пользователя. Старый ключ становится недействительным."""
+        import secrets
+        import string
+        
+        # Генерируем новый ключ формата KEY-XXXX-XXXX
+        def generate_key():
+            chars = string.ascii_uppercase + string.digits
+            part1 = ''.join(secrets.choice(chars) for _ in range(4))
+            part2 = ''.join(secrets.choice(chars) for _ in range(4))
+            return f"KEY-{part1}-{part2}"
+        
+        with self.connect() as con, con.cursor() as cur:
+            # Генерируем уникальный ключ
+            max_attempts = 10
+            for _ in range(max_attempts):
+                new_key = generate_key()
+                # Проверяем уникальность
+                cur.execute("SELECT 1 FROM access_grants WHERE activation_key = %s", (new_key,))
+                if not cur.fetchone():
+                    break
+            else:
+                raise RuntimeError("Failed to generate unique activation key")
+            
+            # Обновляем ключ
+            cur.execute("""
+                UPDATE access_grants
+                SET activation_key = %s
+                WHERE user_id = %s
+            """, (new_key, user_id))
+            
+            # Если записи нет - создаём
+            if cur.rowcount == 0:
+                cur.execute("""
+                    INSERT INTO access_grants (user_id, activation_key)
+                    VALUES (%s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET activation_key = EXCLUDED.activation_key
+                """, (user_id, new_key))
+            
+            return new_key
