@@ -185,14 +185,25 @@ def subscription_keyboard():
 def main_menu_keyboard(user_id: int | None = None):
     has_access = bool(user_id and db.has_access(user_id, cfg.owner_id, cfg.offer_access_mode))
     first_button = InlineKeyboardButton(text="Подписка", callback_data="my_subscription") if has_access else InlineKeyboardButton(text="Купить доступ", callback_data="buy_access")
-    return InlineKeyboardMarkup(inline_keyboard=[
+    
+    buttons = [
         [first_button],
-        [InlineKeyboardButton(text="� Активировать ключ", callback_data="activate_key")],
-        [InlineKeyboardButton(text="🔄 Отвязать твинк", callback_data="deactivate_twink")],
+        [InlineKeyboardButton(text="🔑 Активировать ключ", callback_data="activate_key")],
+    ]
+    
+    # Кнопка "Отвязать твинк" только для твинков
+    if user_id:
+        twink_info = db.get_twink_info(user_id)
+        if twink_info:
+            buttons.append([InlineKeyboardButton(text="🔄 Отвязать твинк", callback_data="deactivate_twink")])
+    
+    buttons.extend([
         [InlineKeyboardButton(text="Реферальная программа", callback_data="my_referrals")],
         [InlineKeyboardButton(text="Инструкция", callback_data="show_instruction")],
         [InlineKeyboardButton(text="Я чайник", callback_data="support_start")],
     ])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def purchase_success_keyboard():
@@ -847,6 +858,9 @@ async def my_subscription_callback(call: CallbackQuery):
             f"<b>@{owner_name}</b>\n\n"
             f"Осталось: <b>{remaining}</b>"
         )
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="В главное меню", callback_data="back_to_start")]
+        ])
     else:
         # Это основной аккаунт
         owner_uid = db.get_access_owner(uid)
@@ -866,26 +880,32 @@ async def my_subscription_callback(call: CallbackQuery):
         if not activation_key:
             activation_key = db.create_activation_key_for_user(uid)
         
-        # Проверяем, есть ли привязанный твинк
-        linked_twink_id = db.get_linked_twink(uid)
+        # Получаем список всех твинков
+        linked_twinks = db.get_all_linked_twinks(uid)
         
         text = f"<b>📊 Подписка</b>\n\nОсталось: <b>{remaining}</b>\n\n"
         text += f"<b>🔑 Ключ для активации твинка:</b>\n<code>{activation_key}</code>\n\n"
         
-        if linked_twink_id:
-            twink_user = db.get_user(linked_twink_id)
-            if twink_user:
-                twink_name = twink_user.get('username') or twink_user.get('first_name') or f"ID {linked_twink_id}"
-                text += f"<b>👤 Привязанный твинк:</b> @{twink_name}"
-            else:
-                text += f"<b>👤 Привязанный твинк:</b> ID {linked_twink_id}"
+        # Показываем список твинков
+        if linked_twinks:
+            text += f"<b>👥 Подключенные твинки ({len(linked_twinks)}):</b>\n"
+            for twink in linked_twinks:
+                twink_name = twink.get('username') or twink.get('first_name') or f"ID {twink['user_id']}"
+                text += f"• @{twink_name}\n"
         else:
-            text += "<b>👤 Привязанный твинк:</b> нет"
+            text += "<b>👥 Подключенные твинки:</b> нет"
         
         if owner_uid != uid:
             text += "\n\n<i>Подписка основного аккаунта используется совместно.</i>"
+        
+        # Кнопки для основного аккаунта
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔑 Пересоздать ключ", callback_data="regenerate_my_key")],
+            [InlineKeyboardButton(text="🗑️ Сбросить все твинки", callback_data="reset_all_twinks")],
+            [InlineKeyboardButton(text="В главное меню", callback_data="back_to_start")]
+        ])
     
-    await call.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="В главное меню", callback_data="back_to_start")]]))
+    await call.message.answer(text, reply_markup=keyboard)
     await call.answer()
 
 
@@ -923,6 +943,96 @@ async def deactivate_twink_callback(call: CallbackQuery):
         )
     else:
         await call.answer("❌ Ошибка при отвязке", show_alert=True)
+
+
+@dp.callback_query(F.data == "regenerate_my_key")
+async def regenerate_my_key_callback(call: CallbackQuery):
+    """Пересоздать ключ активации для текущего пользователя"""
+    if not call.from_user:
+        await call.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    
+    user = call.from_user
+    
+    # Проверяем, есть ли доступ
+    if not db.has_paid_primary_access(user.id):
+        await call.answer("У вас нет собственного доступа", show_alert=True)
+        return
+    
+    # Пересоздаём ключ
+    new_key = db.regenerate_activation_key(user.id)
+    
+    # Получаем список всех твинков, которые использовали старый ключ
+    old_twinks = db.get_all_linked_twinks(user.id)
+    
+    # Сбрасываем доступ на всех твинках
+    for twink in old_twinks:
+        db.deactivate_twink(twink['user_id'])
+        # Уведомляем твинк
+        try:
+            await bot.send_message(
+                twink['user_id'],
+                "⚠️ <b>Ваш доступ аннулирован</b>\n\n"
+                "Владелец основного аккаунта пересоздал ключ активации.\n"
+                "Старый ключ больше не действителен.",
+                reply_markup=main_menu_keyboard(twink['user_id'])
+            )
+        except Exception:
+            log.exception("Could not notify twink %s", twink['user_id'])
+    
+    await call.answer("✅ Новый ключ создан, все твинки отвязаны", show_alert=True)
+    await call.message.answer(
+        f"🔑 <b>Ключ успешно пересоздан</b>\n\n"
+        f"Новый ключ:\n<code>{new_key}</code>\n\n"
+        f"Старый ключ больше не действителен.\n"
+        f"Отвязано твинков: <b>{len(old_twinks)}</b>",
+        reply_markup=main_menu_keyboard(user.id)
+    )
+
+
+@dp.callback_query(F.data == "reset_all_twinks")
+async def reset_all_twinks_callback(call: CallbackQuery):
+    """Сбросить все твинки"""
+    if not call.from_user:
+        await call.answer("Не удалось определить пользователя", show_alert=True)
+        return
+    
+    user = call.from_user
+    
+    # Проверяем, есть ли доступ
+    if not db.has_paid_primary_access(user.id):
+        await call.answer("У вас нет собственного доступа", show_alert=True)
+        return
+    
+    # Получаем список всех твинков
+    linked_twinks = db.get_all_linked_twinks(user.id)
+    
+    if not linked_twinks:
+        await call.answer("У вас нет подключенных твинков", show_alert=True)
+        return
+    
+    # Сбрасываем все твинки
+    for twink in linked_twinks:
+        db.deactivate_twink(twink['user_id'])
+        # Уведомляем твинк
+        try:
+            await bot.send_message(
+                twink['user_id'],
+                "⚠️ <b>Вы были отвязаны</b>\n\n"
+                "Владелец основного аккаунта сбросил все твинки.\n"
+                "Ваш доступ больше не действует.",
+                reply_markup=main_menu_keyboard(twink['user_id'])
+            )
+        except Exception:
+            log.exception("Could not notify twink %s", twink['user_id'])
+    
+    await call.answer(f"✅ Отвязано твинков: {len(linked_twinks)}", show_alert=True)
+    await call.message.answer(
+        f"🗑️ <b>Все твинки сброшены</b>\n\n"
+        f"Отвязано аккаунтов: <b>{len(linked_twinks)}</b>\n\n"
+        "Ваш ключ активации остался прежним.",
+        reply_markup=main_menu_keyboard(user.id)
+    )
 
 
 @dp.callback_query(F.data == "activate_key")
@@ -2231,6 +2341,7 @@ async def admin_callback(call: CallbackQuery):
             [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")],
             [InlineKeyboardButton(text=f"Пранк: {prank_status}", callback_data=f"adm:toggleprank:{uid}")],
             [InlineKeyboardButton(text=f"/transfer: {transfer_status}", callback_data=f"adm:toggletransfer:{uid}")],
+            [InlineKeyboardButton(text="🔑 Пересоздать ключ", callback_data=f"adm:regeneratekey:{uid}")],
             [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{uid}")],
             [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]]
         await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); await call.answer(); return
@@ -2322,6 +2433,33 @@ async def admin_callback(call: CallbackQuery):
             [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{offset}")],
             [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]
         ])); return
+    
+    if action == "regeneratekey":
+        uid = offset
+        # Пересоздаём ключ активации для пользователя
+        new_key = db.regenerate_activation_key(uid)
+        db.log_admin_action(cfg.owner_id, "regenerate_key", uid, f"new_key={new_key}")
+        await call.answer(f"Новый ключ создан: {new_key}", show_alert=True)
+        # Уведомляем пользователя о новом ключе
+        try:
+            await bot.send_message(
+                uid,
+                f"🔑 <b>Ваш ключ активации был обновлён</b>\n\n"
+                f"Новый ключ:\n<code>{new_key}</code>\n\n"
+                f"Старый ключ больше не действителен."
+            )
+        except Exception:
+            log.warning("Could not notify user %s about key regeneration", uid)
+        row = db.admin_user_detail(uid)
+        await call.message.edit_text(admin_user_detail_text(row), reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="Выдать временный доступ", callback_data=f"adm:usergrant:{uid}")],
+            [InlineKeyboardButton(text="Забрать доступ", callback_data=f"adm:userremove:{uid}"), InlineKeyboardButton(text="Заблокировать", callback_data=f"adm:userblock:{uid}")],
+            [InlineKeyboardButton(text="Снять блокировку", callback_data=f"adm:userunblock:{uid}")],
+            [InlineKeyboardButton(text="🔑 Пересоздать ключ", callback_data=f"adm:regeneratekey:{uid}")],
+            [InlineKeyboardButton(text="🔄 Сбросить привязки", callback_data=f"adm:resetlinks:{uid}")],
+            [InlineKeyboardButton(text="К списку", callback_data="adm:users:0"), InlineKeyboardButton(text="В админку", callback_data="adm:home:0")]
+        ]))
+        return
 
     if action == "offers":
         if raw_arg in {"all", "pending", "accepted", "declined", "expired"}:
